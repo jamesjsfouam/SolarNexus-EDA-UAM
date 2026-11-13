@@ -133,19 +133,37 @@ $$\ln C_{t+1} = \beta_0 + \beta_1 \, CDD_{t+1}(T_b) + \beta_2 \, HUM_{t+1} + \be
 > [!NOTE]
 > La especificación semilogarítmica ($\ln C_{t+1}$) permite interpretar $\beta_3$ y $\beta_4$ directamente como **elasticidades** de la demanda respecto a la actividad académica y al área climatizada, mientras $\beta_1$ y $\beta_2$ capturan semielasticidades frente al estrés térmico ambiental.
 
+### Validación Estadística: Margen de Error y Criterio de Akaike (AIC)
+
+Para que el oráculo econométrico pueda operar como un controlador de despacho confiable en tiempo real, cada proyección de 24 horas se acompaña de dos métricas estadísticas clave:
+
+1. **Probabilidad de Cumplimiento dentro del Margen de Error:**
+   El modelo no solo genera una predicción puntual $\widehat{\ln C}_{t+1}$, sino que cuantifica la probabilidad de que el consumo real del campus caiga dentro de un margen de error operativo admisible $\delta$, a partir del error estándar del pronóstico ($\hat{\sigma}_f$) y la distribución de los residuos $\varepsilon_{t+1} \sim \mathcal{N}(0, \sigma^2)$:
+
+   $$P\left(\left|\ln C_{t+1} - \widehat{\ln C}_{t+1}\right| \le \delta\right) = P\left(|Z| \le \frac{\delta}{\hat{\sigma}_{f}}\right) \ge 1 - \alpha$$
+
+   - Esta probabilidad actúa como **compuerta de aversión al riesgo**: el sistema solo autoriza decisiones irreversibles (como exportar excedentes al SIN) cuando la probabilidad de cumplimiento dentro del margen de error supera el umbral de confianza exigido (ej. $1 - \alpha = 95\%$).
+
+2. **Valor de Akaike (Criterio de Información de Akaike, $\text{AIC}$):**
+   Para seleccionar la especificación óptima del modelo 3P (temperatura base $T_b$, rezagos temporales y combinación de regresores) sin incurrir en sobreajuste (*overfitting*), el motor evalúa el **valor de Akaike**:
+
+   $$\text{AIC} = 2k - 2\ln(\hat{L}) \quad \Longleftrightarrow \quad \text{AIC}_{\text{EViews}} = \frac{-2\ell}{T} + \frac{2k}{T}$$
+
+   donde $k$ representa el número de parámetros estimados, $\hat{L}$ (o $\ell$) la verosimilitud máxima del ajuste y $T$ el tamaño muestral. El pipeline selecciona automáticamente la especificación con **menor valor AIC**, garantizando el equilibrio óptimo entre precisión predictiva y parsimonia.
+
 ---
 
 ## 🔋 2. Sistema de Baterías Basado en Predicción (*Peak Shaving*)
 
-En un sistema fotovoltaico convencional sin inteligencia predictiva, los excedentes generados al mediodía se exportan automáticamente a la red eléctrica. **SolarNexus-EDA-UAM** reemplaza esa regla estática por un esquema de decisión condicionado por el pronóstico del oráculo econométrico:
+En un sistema fotovoltaico convencional sin inteligencia predictiva, los excedentes generados al mediodía se exportan automáticamente a la red eléctrica. **SolarNexus-EDA-UAM** reemplaza esa regla estática por un esquema de decisión condicionado por el pronóstico del oráculo econométrico y su intervalo de confianza:
 
 ### Reglas de Decisión del Controlador
 
 | Régimen Operativo | Condición Disparadora (Oráculo 3P) | Acción sobre Flujos | Impacto Económico y Ambiental |
 | :--- | :--- | :--- | :--- |
-| **1. Condición de Carga** | Se pronostica un pico de consumo vespertino (ej. **2:00 PM – 5:00 PM**) superior a la capacidad de **Solar Jaguar**. | Bloquea exportación ($X_t = 0$) y desvía el excedente del mediodía a $B_{\text{carga},t}$. | Reserva energía limpia local en lugar de cederla a bajo valor marginal. |
+| **1. Condición de Carga** | Se pronostica un pico de consumo vespertino (ej. **2:00 PM – 5:00 PM**) superior a la capacidad de **Solar Jaguar** (o la probabilidad fuera del margen de error implica riesgo de déficit). | Bloquea exportación ($X_t = 0$) y desvía el excedente del mediodía a $B_{\text{carga},t}$. | Reserva energía limpia local en lugar de cederla a bajo valor marginal. |
 | **2. Condición de Descarga (*Peak Shaving*)** | El campus entra en la ventana del pico vespertino pronosticado. | Inyecta $B_{\text{descarga},t}$ directamente a la red interna del campus. | Evita comprar $G_t$ en tarifa de máxima demanda, desplazando generación térmica a **búnker**. |
-| **3. Condición de Exportación** | El modelo asegura estadísticamente ausencia de picos (ej. fines de semana o vacaciones detectados por $ACT_t$). | Se puentea la batería ($B_{\text{carga},t} = B_{\text{descarga},t} = 0$) y se habilita $X_t$. | Evita ciclado innecesario de baterías y monetiza el excedente en el SIN. |
+| **3. Condición de Exportación** | El modelo (seleccionado por mínimo **AIC**) asegura con probabilidad $P(|\varepsilon_{t+1}| \le \delta) \ge 1 - \alpha$ la ausencia de picos (ej. fines de semana o vacaciones detectados por $ACT_t$). | Se puentea la batería ($B_{\text{carga},t} = B_{\text{descarga},t} = 0$) y se habilita $X_t$. | Evita ciclado innecesario de baterías y monetiza el excedente en el SIN. |
 
 > [!TIP]
 > Al evitar la compra de $G_t$ durante la franja de máxima demanda vespertina, el campus reduce simultáneamente los cargos por potencia pico en su factura eléctrica y las emisiones asociadas al despacho marginal de generadores térmicos a búnker en la red nacional.
