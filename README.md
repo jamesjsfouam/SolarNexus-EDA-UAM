@@ -137,19 +137,25 @@ $$\ln C_{t+1} = \beta_0 + \beta_1 \, CDD_{t+1}(T_b) + \beta_2 \, HUM_{t+1} + \be
 
 Para que el oráculo econométrico pueda operar como un controlador de despacho confiable en tiempo real, cada proyección de 24 horas se acompaña de dos métricas estadísticas clave:
 
-1. **Probabilidad de Cumplimiento dentro del Margen de Error:**
-   El modelo no solo genera una predicción puntual $\widehat{\ln C}_{t+1}$, sino que cuantifica la probabilidad de que el consumo real del campus caiga dentro de un margen de error operativo admisible $\delta$, a partir del error estándar del pronóstico ($\hat{\sigma}_f$) y la distribución de los residuos $\varepsilon_{t+1} \sim \mathcal{N}(0, \sigma^2)$:
+#### 1. Probabilidad de Cumplimiento dentro del Margen de Error
 
-   $$P\left(\left|\ln C_{t+1} - \widehat{\ln C}_{t+1}\right| \le \delta\right) = P\left(|Z| \le \frac{\delta}{\hat{\sigma}_{f}}\right) \ge 1 - \alpha$$
+El modelo no solo genera una predicción puntual $\widehat{\ln C}_{t+1}$, sino que cuantifica la probabilidad de que el consumo real del campus caiga dentro de un margen de error operativo admisible $\delta$, a partir del error estándar del pronóstico ($\hat{\sigma}_f$) y la distribución de los residuos $\varepsilon_{t+1} \sim \mathcal{N}(0, \sigma^2)$:
 
-   - Esta probabilidad actúa como **compuerta de aversión al riesgo**: el sistema solo autoriza decisiones irreversibles (como exportar excedentes al SIN) cuando la probabilidad de cumplimiento dentro del margen de error supera el umbral de confianza exigido (ej. $1 - \alpha = 95\%$).
+$$
+P\left(\left|\ln C_{t+1} - \widehat{\ln C}_{t+1}\right| \le \delta\right) = P\left(|Z| \le \frac{\delta}{\hat{\sigma}_{f}}\right) \ge 1 - \alpha
+$$
 
-2. **Valor de Akaike (Criterio de Información de Akaike, $\text{AIC}$):**
-   Para seleccionar la especificación óptima del modelo 3P (temperatura base $T_b$, rezagos temporales y combinación de regresores) sin incurrir en sobreajuste (*overfitting*), el motor evalúa el **valor de Akaike**:
+Esta probabilidad actúa como **compuerta de aversión al riesgo**: el sistema solo autoriza decisiones irreversibles (como exportar excedentes al SIN) cuando la probabilidad de cumplimiento dentro del margen de error supera el umbral de confianza exigido (ej. $1 - \alpha = 95\%$).
 
-   $$\text{AIC} = 2k - 2\ln(\hat{L}) \quad \Longleftrightarrow \quad \text{AIC}_{\text{EViews}} = \frac{-2\ell}{T} + \frac{2k}{T}$$
+#### 2. Valor de Akaike (Criterio de Información de Akaike, $\text{AIC}$)
 
-   donde $k$ representa el número de parámetros estimados, $\hat{L}$ (o $\ell$) la verosimilitud máxima del ajuste y $T$ el tamaño muestral. El pipeline selecciona automáticamente la especificación con **menor valor AIC**, garantizando el equilibrio óptimo entre precisión predictiva y parsimonia.
+Para seleccionar la especificación óptima del modelo 3P (temperatura base $T_b$, rezagos temporales y combinación de regresores) sin incurrir en sobreajuste (*overfitting*), el motor evalúa el **valor de Akaike**:
+
+$$
+\text{AIC} = 2k - 2\ln(\hat{L}) \quad \Longleftrightarrow \quad \text{AIC}_{\text{EViews}} = \frac{-2\ell}{T} + \frac{2k}{T}
+$$
+
+donde $k$ representa el número de parámetros estimados, $\hat{L}$ (o $\ell$) la verosimilitud máxima del ajuste y $T$ el tamaño muestral. El pipeline selecciona automáticamente la especificación con **menor valor AIC**, garantizando el equilibrio óptimo entre precisión predictiva y parsimonia.
 
 ---
 
@@ -185,18 +191,23 @@ flowchart LR
 
 ### Mecanismo de Operación Descentralizada
 
-1. **Topología de Micro-Red (Panel a Panel):**
-   Los edificios intercambian corriente continua (**DC**) de manera directa. Por ejemplo, si el **Edificio Copérnico** presenta un excedente solar momentáneo mientras el **Pabellón C** experimenta una alta carga térmica por climatización, la energía fluye directamente de panel a panel a través de micro-inversores locales acoplados a la batería, sin transitar por la unidad central.
+#### 1. Topología de Micro-Red (Panel a Panel)
 
-2. **Precios Sombra Internos (Variables Duales MILP):**
-   El sistema reutiliza la lógica de **variables duales (precios sombra)** derivada del modelo de Programación Lineal Entera Mixta (**MILP**). En tiempo real, el algoritmo asigna un **"precio de congestión"** ($\lambda_i$) a cada nodo de la red según su balance local entre generación, carga térmica y capacidad de enlace.
+Los edificios intercambian corriente continua (**DC**) de manera directa. Por ejemplo, si el **Edificio Copérnico** presenta un excedente solar momentáneo mientras el **Pabellón C** experimenta una alta carga térmica por climatización, la energía fluye directamente de panel a panel a través de micro-inversores locales acoplados a la batería, sin transitar por la unidad central.
 
-3. **Regla de Enrutamiento por Switches de Estado Sólido:**
-   En cada intervalo de control, el algoritmo evalúa la condición de optimalidad:
+#### 2. Precios Sombra Internos (Variables Duales MILP)
 
-   $$\text{Costo}_{\text{transferencia}}(i \to j) < \text{Costo}_{\text{ciclado}}(\text{Batería Principal / Inversor Central})$$
+El sistema reutiliza la lógica de **variables duales (precios sombra)** derivada del modelo de Programación Lineal Entera Mixta (**MILP**). En tiempo real, el algoritmo asigna un **"precio de congestión"** ($\lambda_i$) a cada nodo de la red según su balance local entre generación, carga térmica y capacidad de enlace.
 
-   - Si el **precio sombra** de transferir energía hacia el nodo vecino es menor que el costo de ciclar esa energía pasándola por la batería principal o el inversor central, los **switches de estado sólido** cierran el enlace DC y enrutan la energía directamente entre edificios.
+#### 3. Regla de Enrutamiento por Switches de Estado Sólido
+
+En cada intervalo de control, el algoritmo evalúa la condición de optimalidad:
+
+$$
+\text{Costo}_{\text{transferencia}}(i \to j) < \text{Costo}_{\text{ciclado}}(\text{Batería Principal / Inversor Central})
+$$
+
+Si el **precio sombra** de transferir energía hacia el nodo vecino es menor que el costo de ciclar esa energía pasándola por la batería principal o el inversor central, los **switches de estado sólido** cierran el enlace DC y enrutan la energía directamente entre edificios.
 
 ---
 
