@@ -21,6 +21,30 @@ def test_dia_con_pico_carga_al_mediodia_y_recorta_el_pico():
     assert all(d.flujos.cuadra() for d in plan)
 
 
+def test_tras_el_pico_usa_la_energia_restante():
+    c = controlador()
+    horas = [12, 16, 18, 19]
+    plan = c.planificar(horas, consumo=[100, 400, 300, 300], pv=[600, 300, 0, 0], prob_en_margen=[0.99] * 4)
+    # 200 kWh guardados (límite de potencia); 100 en el pico, 100 a las 18 h.
+    assert [d.regimen for d in plan] == [
+        Regimen.CARGA, Regimen.PEAK_SHAVING, Regimen.DESCARGA_TRAS_PICO, Regimen.AUTOCONSUMO
+    ]
+    assert plan[2].flujos.b_descarga == pytest.approx(100)
+    assert plan[2].flujos.red == pytest.approx(200)
+    assert c.bateria.soc_kwh == pytest.approx(0)
+
+
+def test_descarga_tras_pico_desactivable():
+    from solarnexus.config import Parametros
+
+    c = ControladorDespacho(
+        Bateria(capacidad_kwh=1000, potencia_max_kw=200, eficiencia_carga=1.0),
+        Parametros(descarga_tras_pico=False),
+    )
+    plan = c.planificar([12, 16, 18], consumo=[100, 400, 300], pv=[600, 300, 0], prob_en_margen=[0.99] * 3)
+    assert plan[2].regimen is Regimen.AUTOCONSUMO
+
+
 def test_sin_pico_y_pronostico_fiable_exporta():
     c = controlador()
     plan = c.planificar(HORAS, consumo=[100] * 5, pv=[400] * 5, prob_en_margen=[0.99] * 5)

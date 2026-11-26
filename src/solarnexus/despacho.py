@@ -4,6 +4,8 @@ Reglas (README, sección 2):
   1. Carga: si se pronostica un pico vespertino mayor que la PV, o el pronóstico
      no es lo bastante fiable, se bloquea la exportación y el excedente va a la batería.
   2. Peak shaving: dentro de la ventana pico se descarga la batería para no comprar G_t.
+  2b. Descarga tras el pico: cuando termina la ventana pico, la energía que queda en la
+     batería (por encima del SOC mínimo) cubre el déficit de la tarde-noche.
   3. Exportación: sin pico previsto y con P(|e| <= delta) >= 1 - alpha se puentea la
      batería y el excedente sale al SIN.
 Fuera de esas situaciones el campus consume en autoconsumo e importa el déficit.
@@ -25,6 +27,7 @@ from .config import Parametros
 class Regimen(str, Enum):
     CARGA = "carga"
     PEAK_SHAVING = "peak_shaving"
+    DESCARGA_TRAS_PICO = "descarga_tras_pico"
     EXPORTACION = "exportacion"
     AUTOCONSUMO = "autoconsumo"
 
@@ -106,6 +109,14 @@ class ControladorDespacho:
         if deficit > 0:
             if hay_pico and self.p.en_pico(hora) and self.bateria.max_descarga > 0:
                 regimen = Regimen.PEAK_SHAVING
+                b_descarga = self.bateria.descargar(deficit)
+            elif (
+                hay_pico
+                and self.p.descarga_tras_pico
+                and self.p.tras_pico(hora)
+                and self.bateria.max_descarga > 0
+            ):
+                regimen = Regimen.DESCARGA_TRAS_PICO
                 b_descarga = self.bateria.descargar(deficit)
             else:
                 regimen = Regimen.AUTOCONSUMO

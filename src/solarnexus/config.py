@@ -11,6 +11,9 @@ class Parametros:
     # Ventana del pico vespertino [inicio, fin) en horas locales.
     hora_pico_inicio: int = 14
     hora_pico_fin: int = 17
+    # Tras la ventana pico, usar la energía que quede en la batería para cubrir el
+    # déficit de la tarde-noche en lugar de comprarlo a la red.
+    descarga_tras_pico: bool = True
     # Compuerta de riesgo: solo se exporta si P(|error| <= delta) >= 1 - alpha.
     alpha: float = 0.05
     # Margen de error admisible sobre ln C (0.10 ~ ±10 % de consumo).
@@ -20,6 +23,9 @@ class Parametros:
 
     def en_pico(self, hora: int) -> bool:
         return self.hora_pico_inicio <= hora % 24 < self.hora_pico_fin
+
+    def tras_pico(self, hora: int) -> bool:
+        return hora % 24 >= self.hora_pico_fin
 
     @property
     def confianza(self) -> float:
