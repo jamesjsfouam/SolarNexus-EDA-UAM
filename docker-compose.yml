@@ -1,0 +1,30 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: solarnexus
+      POSTGRES_USER: solarnexus
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env file}
+    ports:
+      - "5432:5432"
+    volumes:
+      - solarnexus-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U solarnexus -d solarnexus"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  api:
+    build: .
+    environment:
+      SOLARNEXUS_DATABASE_URL: postgresql+psycopg://solarnexus:${POSTGRES_PASSWORD}@db:5432/solarnexus
+      SOLARNEXUS_CORS_ORIGINS: http://localhost:3000,http://localhost:5173
+      SOLARNEXUS_API_KEY: ${SOLARNEXUS_API_KEY:-}
+      SOLARNEXUS_ENV: ${SOLARNEXUS_ENV:-development}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  solarnexus-postgres:

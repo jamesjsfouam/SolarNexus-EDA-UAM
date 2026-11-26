@@ -11,3 +11,6 @@ htmlcov/
 .idea/
 .vscode/
 datos/privados/
+.env
+*.db
+*.sqlite3
