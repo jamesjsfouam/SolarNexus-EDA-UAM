@@ -27,8 +27,9 @@
   background: var(--plane);
 }
 
+/* Tema oscuro: por preferencia del sistema, salvo que el usuario elija claro (data-theme en <html>). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     color-scheme: dark;
     --plane: #0b0b0b;
     --surface: #191919;
@@ -45,6 +46,23 @@
     --s-demanda: #efefef;
     --peak: rgba(210, 142, 5, 0.16);
   }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --plane: #0b0b0b;
+  --surface: #191919;
+  --text: #efefef;
+  --text-2: #9c9c9c;
+  --grid: #303030;
+  --border: #2a2a2a;
+  --accent: #6aabf1;
+  --control-border: #727272;
+  --error-text: #f07070;
+  --s-red: #338ced;
+  --s-bateria: #e76624;
+  --s-solar: #00a888;
+  --s-demanda: #efefef;
+  --peak: rgba(210, 142, 5, 0.16);
 }
 
 * { box-sizing: border-box; }
@@ -101,11 +119,6 @@ button, input { font: inherit; color: inherit; }
 .tooltip .t-row span:first-child { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); }
 .tooltip .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 
-.regimen-strip { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; margin: 6px 12px 0 52px; }
-.regimen-strip div { text-align: center; font-size: 0.72rem; font-weight: 600; padding: 4px 0; border-radius: 4px;
-  background: var(--plane); color: var(--text-2); }
-.regimen-strip div.activo { background: var(--grid); color: var(--text); }
-.regimen-leyenda { font-size: 0.8rem; color: var(--text-2); margin-top: 8px; }
 
 .form-bateria { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; margin-top: 12px;
   padding-top: 12px; border-top: 1px solid var(--border); }
@@ -156,9 +169,6 @@ th { color: var(--text-2); font-weight: 500; }
   .tiles { grid-template-columns: repeat(2, 1fr); }
   .tile .valor { font-size: 1.3rem; }
   .card { padding: 14px 12px 10px; }
-  .regimen-strip { gap: 1px; }
-  .regimen-strip div { font-size: 0.6rem; padding: 3px 0; }
-  .regimen-leyenda { font-size: 0.72rem; }
   .form-bateria label { flex: 1 1 45%; }
   .form-bateria input { width: 100%; }
   .form-bateria .btn { width: 100%; justify-content: center; }
@@ -196,4 +206,105 @@ th { color: var(--text-2); font-weight: 500; }
 @media (max-width: 640px) {
   .form-bateria .btn { margin-top: 4px; }
   .error-campo { max-width: none; }
+}
+
+/* Ayuda contextual (ícono i) */
+.ayuda { position: relative; display: inline-flex; vertical-align: middle; margin-left: 4px; }
+.ayuda-boton { display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0; border: none;
+  border-radius: 50%; background: none; color: var(--text-2); cursor: help; }
+.ayuda-boton:hover { color: var(--text); background: var(--plane); }
+.ayuda-texto { position: absolute; z-index: 20; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%);
+  width: max-content; max-width: 260px; padding: 8px 10px; border-radius: 8px; background: var(--text); color: var(--surface);
+  font-size: 0.8rem; font-weight: 400; line-height: 1.4; text-align: left; white-space: normal;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2); display: none; pointer-events: none; }
+/* display: none (no solo invisible) para que el texto oculto no agrande la página en pantallas angostas */
+.ayuda:hover .ayuda-texto, .ayuda.abierta .ayuda-texto, .ayuda-boton:focus-visible + .ayuda-texto { display: block; }
+@media (max-width: 640px) {
+  .ayuda-texto, th .ayuda-texto { position: fixed; left: 12px; right: 12px; bottom: 12px; top: auto;
+    transform: none; width: auto; max-width: none; font-size: 0.9rem; padding: 12px 14px; }
+}
+th .ayuda-texto { right: 0; left: auto; transform: none; }
+
+/* Tramos de operación con nombre (reemplazan la franja de letras) */
+.tramos { display: flex; gap: 2px; list-style: none; margin: 8px 0 0; padding: 0; }
+.tramos-alineados { margin: 6px 12px 0 52px; }
+.tramo { flex-basis: 0; min-width: 0; padding: 6px 6px; border-radius: 6px; overflow: hidden;
+  display: grid; align-content: center; text-align: center; background: var(--plane); color: var(--text-2); }
+.tramo-nombre { font-size: 0.8rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tramo-horas { font-size: 0.72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tramo.tono-carga { background: color-mix(in srgb, var(--s-solar) 22%, var(--surface)); color: var(--text); }
+.tramo.tono-descarga { background: color-mix(in srgb, var(--s-bateria) 26%, var(--surface)); color: var(--text); }
+.tramo.tono-exporta { background: color-mix(in srgb, var(--s-red) 22%, var(--surface)); color: var(--text); }
+
+/* El día del campus */
+.dia-cielo { position: relative; height: 92px; border-radius: 10px; overflow: hidden; }
+.dia-cielo svg { display: block; width: 100%; height: 100%; }
+.dia-pico { position: absolute; top: 0; bottom: 0; border-left: 2px dashed rgba(255, 255, 255, 0.85);
+  border-right: 2px dashed rgba(255, 255, 255, 0.85); background: rgba(255, 255, 255, 0.12); }
+.dia-pico span { position: absolute; top: 4px; left: 50%; transform: translateX(-50%); font-size: 0.72rem; font-weight: 700;
+  color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); }
+.dia-sol { position: absolute; top: 6px; transform: translateX(-50%); color: #fff7d6; filter: drop-shadow(0 0 6px rgba(255, 200, 80, 0.9)); }
+.dia-leyenda { position: absolute; left: 8px; bottom: 4px; font-size: 0.72rem; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7); }
+.dia-horas { position: relative; height: 18px; margin-top: 2px; }
+.dia-horas span { position: absolute; font-size: 0.72rem; color: var(--text-2); }
+
+/* Esqueleto de carga */
+.esqueleto { display: grid; gap: 20px; }
+.hueso { border-radius: var(--radius); background: linear-gradient(90deg, var(--surface) 25%, var(--plane) 50%, var(--surface) 75%);
+  background-size: 200% 100%; animation: brillo 1.4s ease-in-out infinite; border: 1px solid var(--border); }
+.hueso-protagonista { height: 84px; }
+.hueso-dia { height: 160px; }
+.hueso-tile { height: 96px; }
+.hueso-grafico { height: 300px; }
+@keyframes brillo { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .hueso { animation: none; } }
+
+@media (max-width: 640px) {
+  .tramos-alineados { margin: 6px 0 0; }
+  .tramo { padding: 4px 2px; }
+  .tramo-nombre { font-size: 0.68rem; }
+  .tramo-horas { display: none; }
+  .dia-cielo { height: 72px; }
+  .mesh-svg .nodo-nombre { font-size: 16px; }
+  .mesh-svg .nodo-dato, .mesh-svg .enlace-dato { font-size: 14px; }
+}
+.tile .label { min-height: 24px; }
+
+/* Selector de tema */
+.selector-tema { display: inline-flex; padding: 2px; gap: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.selector-tema button { display: inline-grid; place-items: center; width: 32px; height: 30px; border: none; border-radius: 6px;
+  background: none; color: var(--text-2); cursor: pointer; }
+.selector-tema button:hover { color: var(--text); }
+.selector-tema button.activo { background: var(--plane); color: var(--text); box-shadow: inset 0 0 0 1px var(--border); }
+.solo-lectores { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.header-actions { flex-wrap: wrap; }
+
+/* Guía de uso */
+.guia { width: min(860px, calc(100vw - 24px)); max-height: min(86vh, 900px); padding: 0; border: 1px solid var(--border);
+  border-radius: 14px; background: var(--surface); color: var(--text); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35); }
+.guia::backdrop { background: rgba(0, 0, 0, 0.55); }
+.guia[open] { display: flex; flex-direction: column; }
+.guia-cabecera { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 20px;
+  border-bottom: 1px solid var(--border); }
+.guia-cabecera h2 { font-size: 1.2rem; }
+.guia-cuerpo { display: grid; grid-template-columns: 200px 1fr; min-height: 0; overflow: hidden; }
+.guia-indice { padding: 16px 12px; border-right: 1px solid var(--border); overflow-y: auto; }
+.guia-indice ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.guia-indice button { width: 100%; text-align: left; padding: 8px 10px; border: none; border-radius: 6px; background: none;
+  color: var(--text-2); cursor: pointer; font-size: 0.875rem; }
+.guia-indice button:hover { background: var(--plane); color: var(--text); }
+.guia-texto { padding: 8px 24px 24px; overflow-y: auto; line-height: 1.6; }
+.guia-texto section { padding-top: 16px; scroll-margin-top: 8px; }
+.guia-texto h3 { font-size: 1rem; margin-bottom: 8px; }
+.guia-texto p, .guia-texto li { max-width: 68ch; }
+.guia-texto ol, .guia-texto ul { padding-left: 20px; margin: 0 0 8px; display: grid; gap: 6px; }
+.guia-texto dl { margin: 0 0 8px; display: grid; gap: 10px; }
+.guia-texto dt { font-weight: 600; }
+.guia-texto dd { margin: 2px 0 0; color: var(--text-2); max-width: 68ch; }
+@media (max-width: 640px) {
+  .guia { width: 100vw; max-height: 100dvh; height: 100dvh; border-radius: 0; margin: 0; max-width: none; }
+  .guia-cuerpo { grid-template-columns: 1fr; overflow-y: auto; }
+  .guia-indice { border-right: none; border-bottom: 1px solid var(--border); overflow: visible; }
+  .guia-texto { overflow: visible; padding: 8px 16px 24px; }
+  .header-actions .btn { padding: 7px 10px; }
 }

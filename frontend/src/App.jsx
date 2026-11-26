@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { BATERIA_DEFECTO, RED_MESH_DEFECTO, cargarDashboard, recalcularDespacho, sembrarDemo } from './api.js'
 import * as mock from './mock.js'
-import { fechaLocal, horaLocal, kwh, num1, pct, REGIMENES } from './formato.js'
+import { fechaLocal, GLOSARIO, horaLocal, kwh, num1, pct, REGIMENES } from './formato.js'
+import Ayuda from './components/Ayuda.jsx'
+import { DiaCampus } from './components/DiaCampus.jsx'
+import Guia from './components/Guia.jsx'
+import SelectorTema from './components/SelectorTema.jsx'
 import {
-  Activity, BatteryCharging, Calculator, ChartColumn, ChartLine, CircleCheck, DatabaseZap, Network,
+  Activity, BatteryCharging, BookOpen, Calculator, ChartColumn, ChartLine, CircleCheck, DatabaseZap, Network,
   RefreshCw, Sun, Table, TriangleAlert, UtilityPole, WifiOff, Zap,
 } from 'lucide-react'
 import {
@@ -11,12 +15,54 @@ import {
 } from './components/Graficos.jsx'
 import RedMesh from './components/RedMesh.jsx'
 
-function Tile({ icono: Icono, label, valor, unidad, nota }) {
+// Configuración completa del último despacho guardado; el back guarda también la ventana pico y alpha/delta.
+function bateriaDesdeDespacho(despacho) {
+  return {
+    ...BATERIA_DEFECTO,
+    capacity_kwh: despacho.battery_capacity_kwh,
+    power_kw: despacho.battery_power_kw,
+    initial_soc_kwh: despacho.initial_soc_kwh,
+    min_soc_kwh: despacho.min_soc_kwh,
+    charge_efficiency: despacho.charge_efficiency,
+    peak_start_hour: despacho.peak_start_hour ?? BATERIA_DEFECTO.peak_start_hour,
+    peak_end_hour: despacho.peak_end_hour ?? BATERIA_DEFECTO.peak_end_hour,
+    alpha: despacho.alpha ?? BATERIA_DEFECTO.alpha,
+    delta: despacho.delta ?? BATERIA_DEFECTO.delta,
+  }
+}
+
+// Posición (slot) y etiquetas de hora de un intervalo; el siguiente se toma del punto que sigue o +1 h.
+function intervalo(p, slot, points, tz) {
+  const hora = horaLocal(p.interval_start, tz)
+  const siguiente = points[slot + 1]?.interval_start
+    ?? new Date(Date.parse(p.interval_start) + 60 * 60 * 1000).toISOString()
+  const etiqueta = (h) => `${String(h).padStart(2, '0')}:00`
+  return { slot, hora, horaLabel: etiqueta(hora), horaSiguienteLabel: etiqueta(horaLocal(siguiente, tz)) }
+}
+
+function Tile({ icono: Icono, label, valor, unidad, nota, ayuda }) {
   return (
     <div className="tile">
-      <div className="label"><Icono size={16} aria-hidden="true" />{label}</div>
+      <div className="label"><Icono size={16} aria-hidden="true" />{label}{ayuda && <Ayuda texto={ayuda} etiqueta={`Qué es: ${label}`} />}</div>
       <div className="valor">{valor}{unidad && <span className="unidad">{unidad}</span>}</div>
       {nota && <div className="nota">{nota}</div>}
+    </div>
+  )
+}
+
+// Silueta de la página mientras llega la primera respuesta: evita una pantalla vacía.
+function Esqueleto() {
+  return (
+    <div className="esqueleto" aria-busy="true" aria-label="Cargando datos del despacho">
+      <div className="hueso hueso-protagonista" />
+      <div className="hueso hueso-dia" />
+      <div className="tiles">
+        {[0, 1, 2, 3].map((i) => <div key={i} className="hueso hueso-tile" />)}
+      </div>
+      <div className="grid-2">
+        <div className="hueso hueso-grafico" />
+        <div className="hueso hueso-grafico" />
+      </div>
     </div>
   )
 }
@@ -101,6 +147,7 @@ export default function App() {
   const [ocupado, setOcupado] = useState(false)
   const [verTabla, setVerTabla] = useState(false)
   const [cambio, setCambio] = useState(null) // { red: [antes, después], bateria: [antes, después] }
+  const [guiaAbierta, setGuiaAbierta] = useState(false)
 
   useEffect(() => {
     if (!cambio) return undefined
@@ -112,19 +159,8 @@ export default function App() {
     setEstado((s) => ({ ...s, cargando: true, error: null }))
     try {
       const datos = await cargarDashboard()
-      const d = datos.despacho
-      if (datos.fuente === 'api' && d) {
-        // El formulario parte de la batería con la que se calculó el último plan guardado.
-        // La API no guarda la ventana pico ni alpha/delta, así que esos se mantienen.
-        setBateria((b) => ({
-          ...b,
-          capacity_kwh: d.battery_capacity_kwh,
-          power_kw: d.battery_power_kw,
-          initial_soc_kwh: d.initial_soc_kwh,
-          min_soc_kwh: d.min_soc_kwh,
-          charge_efficiency: d.charge_efficiency,
-        }))
-      }
+      // El formulario parte de la batería con la que se calculó el último plan guardado.
+      if (datos.fuente === 'api' && datos.despacho) setBateria(bateriaDesdeDespacho(datos.despacho))
       setEstado({ cargando: false, ...datos })
     } catch (err) {
       setEstado({ cargando: false, error: err.message })
@@ -133,12 +169,13 @@ export default function App() {
 
   useEffect(() => { cargar() }, [cargar])
 
-  const { fuente, campus, medicion, mediciones, pronostico, despacho, mesh, health } = estado
+  const { fuente, campus, medicion, mediciones, pronostico, despacho, mesh, meshError, health } = estado
   const tz = campus?.timezone ?? 'America/Managua'
   const pico = { inicio: bateria.peak_start_hour, fin: bateria.peak_end_hour }
 
-  const serieDespacho = useMemo(() => (despacho?.points ?? []).map((p) => ({
-    hora: horaLocal(p.interval_start, tz),
+  const serieDespacho = useMemo(() => (despacho?.points ?? []).slice(0, 24).map((p, slot, points) => ({
+    ...intervalo(p, slot, points, tz),
+    interval_start: p.interval_start,
     regimen: p.regime,
     solar: p.pv_generation_kwh - p.battery_charge_kwh - p.export_kwh,
     descarga: p.battery_discharge_kwh,
@@ -149,14 +186,14 @@ export default function App() {
     demanda: p.demand_kwh,
     pv: p.pv_generation_kwh,
     prob: p.probability_within_margin,
-  })).sort((a, b) => a.hora - b.hora), [despacho, tz])
+  })), [despacho, tz])
 
-  const seriePronostico = useMemo(() => (pronostico?.points ?? []).slice(0, 24).map((p) => ({
-    hora: horaLocal(p.interval_start, tz),
+  const seriePronostico = useMemo(() => (pronostico?.points ?? []).slice(0, 24).map((p, slot, points) => ({
+    ...intervalo(p, slot, points, tz),
     demanda: p.demand_kwh,
     pv: p.pv_generation_kwh,
     prob: p.probability_within_margin,
-  })).sort((a, b) => a.hora - b.hora), [pronostico, tz])
+  })), [pronostico, tz])
 
   const serieMediciones = useMemo(() => {
     const dia = new Intl.DateTimeFormat('es-NI', { weekday: 'short', timeZone: tz })
@@ -202,7 +239,7 @@ export default function App() {
   async function sembrar() {
     setOcupado(true)
     try {
-      await sembrarDemo()
+      await sembrarDemo(pronostico?.id) // si ya hay pronóstico, solo calcula su despacho
       await cargar()
     } catch (err) {
       setEstado((s) => ({ ...s, error: err.message }))
@@ -233,12 +270,17 @@ export default function App() {
               {fuente === 'api' ? 'Conectado a la API' : 'Datos de ejemplo'}
             </span>
           )}
+          <button className="btn" onClick={() => setGuiaAbierta(true)} aria-haspopup="dialog">
+            <BookOpen size={16} aria-hidden="true" />Guía
+          </button>
+          <SelectorTema />
           <button className="btn" onClick={cargar} disabled={estado.cargando}>
             <RefreshCw size={16} aria-hidden="true" className={estado.cargando ? 'girando' : ''} />
             {estado.cargando ? 'Cargando…' : 'Actualizar'}
           </button>
         </div>
       </header>
+      <Guia abierta={guiaAbierta} onCerrar={() => setGuiaAbierta(false)} />
 
       {estado.error && (
         <div className="aviso error">
@@ -255,14 +297,26 @@ export default function App() {
           </div>
         </div>
       )}
+      {meshError && (
+        <div className="aviso">
+          <Network size={20} aria-hidden="true" />
+          <div><strong>La red mesh no está disponible en este momento.</strong>{meshError}</div>
+        </div>
+      )}
+
+      {estado.cargando && !despacho && <Esqueleto />}
 
       {sinDatos && (
         <div className="card vacio">
           <DatabaseZap size={32} aria-hidden="true" />
-          <p>La API está conectada pero todavía no tiene pronósticos ni planes de despacho.</p>
+          <p>
+            {pronostico
+              ? 'Ya hay un pronóstico, pero todavía no tiene un plan de despacho.'
+              : 'La API está conectada pero todavía no tiene pronósticos ni planes de despacho.'}
+          </p>
           <button className="btn btn-primary" onClick={sembrar} disabled={ocupado}>
             <DatabaseZap size={16} aria-hidden="true" />
-            {ocupado ? 'Cargando…' : 'Cargar datos de demostración'}
+            {ocupado ? 'Procesando…' : pronostico ? 'Calcular el despacho del pronóstico' : 'Cargar datos de demostración'}
           </button>
         </div>
       )}
@@ -271,12 +325,25 @@ export default function App() {
         <>
           <Protagonista franja={horaPico} pico={pico} />
 
+          <section className="card">
+            <div className="card-head">
+              <div>
+                <h2><Sun size={18} aria-hidden="true" />El día del campus</h2>
+                <div className="sub">
+                  El cielo sigue la producción solar prevista; la línea blanca es el consumo y abajo, qué hace el sistema en cada tramo
+                  <Ayuda texto={GLOSARIO.franjaPico} etiqueta="Qué es la franja pico" />
+                </div>
+              </div>
+            </div>
+            <DiaCampus datos={serieDespacho} pico={pico} />
+          </section>
+
           <section className="tiles">
-            <Tile icono={Zap} label="Demanda prevista" valor={kwh(totales.demanda)} unidad="kWh" nota="Total del día" />
+            <Tile icono={Zap} label="Demanda prevista" valor={kwh(totales.demanda)} unidad="kWh" nota="Total de las primeras 24 horas" />
             <Tile icono={Sun} label="Generación solar" valor={kwh(totales.pv)} unidad="kWh"
               nota={`${pct(totales.pv / totales.demanda)} de la demanda · ${kwh(totales.exporta)} kWh exportados`} />
-            <Tile icono={UtilityPole} label="Compra a la red" valor={kwh(totales.red)} unidad="kWh" nota={`${kwh(redEnPico)} kWh en la franja pico`} />
-            <Tile icono={BatteryCharging} label="Aporte de la batería" valor={kwh(totales.descarga)} unidad="kWh" nota={`${kwh(bateriaEnPico)} kWh en la franja pico`} />
+            <Tile icono={UtilityPole} label="Compra a la red" ayuda={GLOSARIO.sin} valor={kwh(totales.red)} unidad="kWh" nota={`${kwh(redEnPico)} kWh en la franja pico`} />
+            <Tile icono={BatteryCharging} label="Aporte de la batería" ayuda={GLOSARIO.peakShaving} valor={kwh(totales.descarga)} unidad="kWh" nota={`${kwh(bateriaEnPico)} kWh en la franja pico`} />
           </section>
 
           <div className="grid-2">
@@ -318,13 +385,14 @@ export default function App() {
                   <thead>
                     <tr>
                       <th>Hora</th><th>Modo</th><th>Demanda</th><th>Solar</th><th>Red</th>
-                      <th>Carga bat.</th><th>Descarga bat.</th><th>Exporta</th><th>Batería</th><th>Prob.</th>
+                      <th>Carga bat.</th><th>Descarga bat.</th><th>Exporta</th><th>Batería</th>
+                      <th>Prob. <Ayuda texto={GLOSARIO.probMargen} etiqueta="Qué es la probabilidad dentro del margen" /></th>
                     </tr>
                   </thead>
                   <tbody>
                     {serieDespacho.map((d) => (
-                      <tr key={d.hora}>
-                        <td>{d.hora}:00</td><td>{REGIMENES[d.regimen]?.nombre ?? d.regimen}</td>
+                      <tr key={d.interval_start}>
+                        <td>{d.horaLabel}</td><td>{REGIMENES[d.regimen]?.nombre ?? d.regimen}</td>
                         <td>{kwh(d.demanda)}</td><td>{kwh(d.pv)}</td><td>{kwh(d.red)}</td><td>{kwh(d.carga)}</td>
                         <td>{kwh(d.descarga)}</td><td>{kwh(d.exporta)}</td><td>{kwh(d.soc)}</td><td>{pct(d.prob)}</td>
                       </tr>
@@ -376,8 +444,11 @@ export default function App() {
             <section className="card">
               <div className="card-head">
                 <div>
-                  <h2><Network size={18} aria-hidden="true" />Red mesh DC</h2>
-                  <div className="sub">Intercambio directo entre edificios (red de ejemplo) · costo del intervalo ${mesh.total_cost.toFixed(2)}</div>
+                  <h2><Network size={18} aria-hidden="true" />Red mesh DC<Ayuda texto={GLOSARIO.redMesh} etiqueta="Qué es la red mesh DC" /></h2>
+                  <div className="sub">
+                    Intercambio directo entre edificios (red de ejemplo) · costo del intervalo ${mesh.total_cost.toFixed(2)} ·
+                    λ = precio sombra<Ayuda texto={GLOSARIO.precioSombra} etiqueta="Qué es el precio sombra" />
+                  </div>
                 </div>
               </div>
               <RedMesh red={RED_MESH_DEFECTO} resultado={mesh} />
@@ -386,7 +457,12 @@ export default function App() {
         </>
       )}
 
-      <footer className="pie">SolarNexus-EDA-UAM · Modelo 3P ASHRAE · Datos {fuente === 'api' ? 'de la API' : 'de ejemplo'}</footer>
+      <footer className="pie">
+        {pronostico?.generated_at
+          ? `Pronóstico generado el ${new Intl.DateTimeFormat('es-NI', { dateStyle: 'medium', timeStyle: 'short', timeZone: tz }).format(new Date(pronostico.generated_at))}`
+          : 'Sin pronóstico cargado'}
+        {' · '}Datos {fuente === 'api' ? 'de la API' : 'de ejemplo'} · SolarNexus-EDA-UAM
+      </footer>
     </div>
   )
 }

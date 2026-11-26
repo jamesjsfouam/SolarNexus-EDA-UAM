@@ -2,13 +2,21 @@ import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceArea,
   ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
-import { kwh, pct, REGIMENES } from '../formato.js'
+import { GLOSARIO, kwh, pct, REGIMENES } from '../formato.js'
+import Ayuda from './Ayuda.jsx'
+import { Tramos } from './DiaCampus.jsx'
 
 const EJE = { stroke: 'var(--text-2)', fontSize: 12 }
-const ejeX = {
-  dataKey: 'hora', type: 'number', domain: [-0.5, 23.5], ticks: [0, 3, 6, 9, 12, 15, 18, 21],
-  tickFormatter: (h) => `${h}h`, tick: EJE, axisLine: { stroke: 'var(--grid)' }, tickLine: false,
-}
+// El eje X usa la posición del intervalo (slot), no la hora: así un horizonte que cruza la
+// medianoche o que no empieza a las 0 h se dibuja en orden.
+const ejeX = (datos) => ({
+  dataKey: 'slot', type: 'number', domain: [-0.5, 23.5], ticks: [0, 3, 6, 9, 12, 15, 18, 21],
+  tickFormatter: (slot) => {
+    const h = datos[Math.round(slot)]?.hora
+    return h === undefined ? '' : `${h}h`
+  },
+  tick: EJE, axisLine: { stroke: 'var(--grid)' }, tickLine: false,
+})
 const ejeY = { tick: EJE, axisLine: false, tickLine: false, width: 52, tickFormatter: kwh }
 const grid = <CartesianGrid stroke="var(--grid)" vertical={false} />
 
@@ -19,6 +27,7 @@ function Leyenda({ items }) {
         <li key={it.nombre}>
           <span className={`sw ${it.tipo ?? ''}`} style={{ background: it.color }} />
           {it.nombre}
+          {it.ayuda && <Ayuda texto={it.ayuda} etiqueta={`Qué es: ${it.nombre}`} />}
         </li>
       ))}
     </ul>
@@ -30,7 +39,7 @@ function CajaTooltip({ active, payload, filas }) {
   const d = payload[0].payload
   return (
     <div className="tooltip">
-      <div className="t-title">{d.hora}:00 – {d.hora + 1}:00</div>
+      <div className="t-title">{d.horaLabel} – {d.horaSiguienteLabel}</div>
       {filas.map((f) => (
         <div className="t-row" key={f.nombre}>
           <span>{f.color && <i className="sw" style={{ background: f.color }} />}{f.nombre}</span>
@@ -41,9 +50,17 @@ function CajaTooltip({ active, payload, filas }) {
   )
 }
 
-const franjaPico = (pico) => (
-  <ReferenceArea x1={pico.inicio - 0.5} x2={pico.fin - 0.5} fill="var(--peak)" stroke="none" ifOverflow="extendDomain" />
-)
+// Una banda por hora de la franja pico (puede no ser contigua si el horizonte cruza la medianoche).
+const franjasPico = (datos, pico) => datos
+  .filter((d) => d.hora >= pico.inicio && d.hora < pico.fin)
+  .map((d) => (
+    <ReferenceArea key={`pico-${d.slot}`} x1={d.slot - 0.5} x2={d.slot + 0.5}
+      fill="var(--peak)" stroke="none" ifOverflow="extendDomain" />
+  ))
+
+const leyendaPico = (pico) => ({
+  nombre: `Franja pico ${pico.inicio}–${pico.fin} h`, tipo: 'peak', ayuda: GLOSARIO.franjaPico,
+})
 
 /** Demanda prevista vs. generación solar, con la franja pico marcada. */
 export function GraficoPronostico({ datos, pico }) {
@@ -52,19 +69,19 @@ export function GraficoPronostico({ datos, pico }) {
       <Leyenda items={[
         { nombre: 'Demanda prevista', color: 'var(--s-demanda)', tipo: 'line' },
         { nombre: 'Generación solar', color: 'var(--s-solar)', tipo: 'line' },
-        { nombre: `Franja pico ${pico.inicio}–${pico.fin} h`, tipo: 'peak' },
+        leyendaPico(pico),
       ]} />
       <ResponsiveContainer width="100%" height={260}>
         <LineChart data={datos} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
           {grid}
-          {franjaPico(pico)}
-          <XAxis {...ejeX} />
-          <YAxis {...ejeY} unit="" />
+          {franjasPico(datos, pico)}
+          <XAxis {...ejeX(datos)} />
+          <YAxis {...ejeY} />
           <Tooltip cursor={{ stroke: 'var(--text-2)', strokeDasharray: '3 3' }} content={
             <CajaTooltip filas={[
               { nombre: 'Demanda', color: 'var(--s-demanda)', valor: (d) => `${kwh(d.demanda)} kWh` },
               { nombre: 'Solar', color: 'var(--s-solar)', valor: (d) => `${kwh(d.pv)} kWh` },
-              { nombre: 'Prob. en margen', valor: (d) => pct(d.prob) },
+              { nombre: 'Prob. dentro del margen', valor: (d) => pct(d.prob) },
             ]} />
           } />
           <Line dataKey="demanda" stroke="var(--s-demanda)" strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
@@ -81,14 +98,15 @@ export function GraficoDespacho({ datos, pico }) {
     <>
       <Leyenda items={[
         { nombre: 'Solar directa', color: 'var(--s-solar)' },
-        { nombre: 'Batería', color: 'var(--s-bateria)' },
-        { nombre: 'Compra a la red', color: 'var(--s-red)' },
+        { nombre: 'Batería', color: 'var(--s-bateria)', ayuda: GLOSARIO.peakShaving },
+        { nombre: 'Compra a la red', color: 'var(--s-red)', ayuda: GLOSARIO.sin },
+        leyendaPico(pico),
       ]} />
       <ResponsiveContainer width="100%" height={240}>
         <BarChart data={datos} margin={{ top: 8, right: 12, bottom: 0, left: 0 }} barCategoryGap={2}>
           {grid}
-          {franjaPico(pico)}
-          <XAxis {...ejeX} />
+          {franjasPico(datos, pico)}
+          <XAxis {...ejeX(datos)} />
           <YAxis {...ejeY} />
           <Tooltip cursor={{ fill: 'var(--grid)', opacity: 0.5 }} content={
             <CajaTooltip filas={[
@@ -105,16 +123,7 @@ export function GraficoDespacho({ datos, pico }) {
           <Bar dataKey="red" stackId="s" fill="var(--s-red)" stroke="var(--surface)" strokeWidth={1} radius={[4, 4, 0, 0]} isAnimationActive={false} />
         </BarChart>
       </ResponsiveContainer>
-      <div className="regimen-strip" aria-label="Modo de operación por hora">
-        {datos.map((d) => (
-          <div key={d.hora} className={d.regimen !== 'autoconsumo' ? 'activo' : ''} title={`${d.hora}h · ${REGIMENES[d.regimen]?.nombre ?? d.regimen}`}>
-            {REGIMENES[d.regimen]?.letra ?? '?'}
-          </div>
-        ))}
-      </div>
-      <div className="regimen-leyenda">
-        {Object.values(REGIMENES).map((r) => `${r.letra} = ${r.nombre}`).join(' · ')}
-      </div>
+      <Tramos datos={datos} className="tramos-alineados" />
     </>
   )
 }
@@ -125,8 +134,8 @@ export function GraficoBateria({ datos, capacidad, minimo, pico }) {
     <ResponsiveContainer width="100%" height={200}>
       <AreaChart data={datos} margin={{ top: 16, right: 12, bottom: 0, left: 0 }}>
         {grid}
-        {franjaPico(pico)}
-        <XAxis {...ejeX} />
+        {franjasPico(datos, pico)}
+        <XAxis {...ejeX(datos)} />
         <YAxis {...ejeY} domain={[0, capacidad]} />
         <ReferenceLine y={capacidad} stroke="var(--text-2)" strokeDasharray="4 4"
           label={{ value: `Capacidad ${kwh(capacidad)} kWh`, position: 'insideTopRight', fill: 'var(--text-2)', fontSize: 11 }} />

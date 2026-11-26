@@ -2,7 +2,8 @@
 // Si la API no responde, el dashboard usa datos de ejemplo con el mismo formato.
 import * as mock from './mock.js'
 
-const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api/v1'
+// Por defecto la misma ruta del sitio: en desarrollo el proxy de Vite la reenvía al back (vite.config.js).
+const BASE = (import.meta.env.VITE_API_URL ?? '/api/v1').replace(/\/+$/, '')
 
 export class ApiError extends Error {
   constructor(status, message) {
@@ -12,15 +13,27 @@ export class ApiError extends Error {
 }
 
 async function request(path, options = {}) {
+  const headers = new Headers(options.headers ?? {})
+  if (options.body !== undefined && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
   const res = await fetch(BASE + path, {
-    headers: { 'Content-Type': 'application/json' },
     ...options,
-    body: options.body && JSON.stringify(options.body),
+    headers,
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
   })
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))
-    const detail = typeof data.detail === 'string' ? data.detail : res.statusText
-    throw new ApiError(res.status, detail)
+    const rawDetail = data.detail
+    const detail = Array.isArray(rawDetail)
+      ? rawDetail.map((item) => {
+          const location = Array.isArray(item.loc) ? item.loc.filter((part) => part !== 'body').join('.') : ''
+          return `${location ? `${location}: ` : ''}${item.msg ?? 'Dato inválido'}`
+        }).join('; ')
+      : typeof rawDetail === 'string'
+        ? rawDetail
+        : rawDetail?.message ?? res.statusText
+    throw new ApiError(res.status, detail || `HTTP ${res.status}`)
   }
   return res.json()
 }
@@ -29,8 +42,8 @@ async function request(path, options = {}) {
 export const BATERIA_DEFECTO = {
   capacity_kwh: 1500,
   power_kw: 300,
-  initial_soc_kwh: 150,
-  min_soc_kwh: 150,
+  initial_soc_kwh: 500,
+  min_soc_kwh: 100,
   charge_efficiency: 0.95,
   peak_start_hour: 14,
   peak_end_hour: 17,
@@ -62,31 +75,43 @@ const notFoundToNull = (err) => {
 export async function cargarDashboard() {
   try {
     const health = await request('/health')
-    const [campus, mediciones, pronostico, despacho, mesh] = await Promise.all([
+    const [campus, mediciones, pronostico, despacho, meshResult] = await Promise.all([
       request('/campus'),
       request('/measurements?limit=48'), // llegan de la más reciente a la más antigua
       request('/forecasts/latest').catch(notFoundToNull),
       request('/dispatch/latest').catch(notFoundToNull),
-      request('/mesh/solve', { method: 'POST', body: RED_MESH_DEFECTO }),
+      // Si la red mesh falla, el resto del dashboard sigue funcionando.
+      request('/mesh/solve', { method: 'POST', body: RED_MESH_DEFECTO })
+        .then((mesh) => ({ mesh, meshError: null }))
+        .catch((err) => ({ mesh: null, meshError: err.message })),
     ])
     mediciones.reverse()
-    return { fuente: 'api', health, campus, medicion: mediciones.at(-1) ?? null, mediciones, pronostico, despacho, mesh }
+    return {
+      fuente: 'api', health, campus, medicion: mediciones.at(-1) ?? null, mediciones, pronostico, despacho, ...meshResult,
+    }
   } catch (err) {
     if (err instanceof ApiError) throw err // la API respondió con un error real
     return { fuente: 'ejemplo', ...mock.dashboard(BATERIA_DEFECTO) }
   }
 }
 
-/** Sube mediciones y un pronóstico de ejemplo y calcula su despacho (para una API recién creada, sin datos). */
-export async function sembrarDemo() {
+/**
+ * Prepara una API sin datos: sube mediciones si no hay, un pronóstico si no se pasa uno existente,
+ * y calcula su despacho. Con un pronóstico existente no lo duplica.
+ */
+export async function sembrarDemo(forecastRunId = null) {
   const existentes = await request('/measurements?limit=1')
   if (existentes.length === 0) {
     await request('/measurements/batch', { method: 'POST', body: { records: mock.medicionesParaSubir() } })
   }
-  const pronostico = await request('/forecasts', { method: 'POST', body: mock.pronosticoParaSubir() })
-  await request('/dispatch/plan', {
+  let runId = forecastRunId
+  if (!runId) {
+    const pronostico = await request('/forecasts', { method: 'POST', body: mock.pronosticoParaSubir() })
+    runId = pronostico.id
+  }
+  return request('/dispatch/plan', {
     method: 'POST',
-    body: { forecast_run_id: pronostico.id, battery: BATERIA_DEFECTO },
+    body: { forecast_run_id: runId, battery: BATERIA_DEFECTO },
   })
 }
 
