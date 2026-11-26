@@ -272,3 +272,69 @@ Arranca con un año sintético (vacaciones y una mejora de eficiencia del 8 % de
 
 > [!NOTE]
 > Decisiones de esta primera versión que conviene revisar: intervalos horarios (el $CDD$ se calcula como grados-hora), el excedente que no cabe en la batería durante el régimen de carga se exporta en lugar de desperdiciarse, y, en días con pico previsto, la batería descarga en la ventana pico y después usa lo que le quede para cubrir el déficit de la tarde-noche (`descarga_tras_pico`, desactivable en `Parametros`).
+
+
+---
+
+## Backend REST API (rama C.santana)
+
+La rama C.santana incorpora una API REST para el trabajo paralelo de backend, frontend y estadística.
+
+### Iniciar localmente
+
+~~~bash
+python -m pip install -e ".[dev]"
+uvicorn solarnexus.api.main:app --reload
+~~~
+
+La API queda disponible en http://localhost:8000 y su documentación interactiva en http://localhost:8000/docs. Por defecto utiliza SQLite en solarnexus.db.
+
+Para iniciar API y PostgreSQL con Docker:
+
+~~~bash
+docker compose up --build
+~~~
+
+### Componentes del backend
+
+- Telemetría: carga por lotes, consulta histórica y última medición.
+- Pronósticos: recepción y persistencia de resultados calculados por el módulo estadístico.
+- Despacho: cálculo y persistencia de planes usando el controlador energético existente.
+- Red Mesh DC: endpoint para resolver la optimización MILP con los nodos y enlaces recibidos.
+- Persistencia: SQLAlchemy con SQLite local y PostgreSQL configurable.
+- Validación y documentación: Pydantic, OpenAPI, Swagger y pruebas con pytest.
+
+La especificación de integración para frontend y estadística está en [docs/API_CONTRACT.md](docs/API_CONTRACT.md).
+
+> [!WARNING]
+> Esta API es un backend de desarrollo con clave de servicio opcional y migraciones versionadas. No implementa cuentas de usuario ni controla medidores, inversores o equipos físicos. No debe exponerse a Internet con datos reales sin una capa de autenticación/autorización y controles operativos adecuados.
+
+
+### Seguridad y migraciones
+
+- El servicio aplica migraciones Alembic al iniciar. El esquema inicial está versionado en `migrations/versions`.
+- En desarrollo, la clave de API es opcional. Configura `SOLARNEXUS_API_KEY` para exigir el encabezado `X-API-Key` en las rutas de negocio.
+- Con `SOLARNEXUS_ENV=production`, el servicio no inicia si no existe una clave de al menos 32 caracteres.
+- No incluyas la clave compartida dentro del bundle público del frontend. Para una SPA pública utiliza un proxy/backend del mismo origen o autenticación por usuario.
+- Copia `.env.example` a `.env` y reemplaza las claves de ejemplo antes de levantar Docker Compose.
+- `GET /api/v1/dashboard/summary` devuelve los indicadores agregados para el panel de control.
+
+
+## React dashboard
+
+The React + Vite dashboard is in `frontend/`. Start the API from the repository
+root and the frontend from a second terminal:
+
+```bash
+python -m pip install -e ".[dev]"
+uvicorn solarnexus.api.main:app --reload
+
+cd frontend
+cp .env.example .env
+npm install
+npm run dev
+```
+
+Vite proxies `/api/v1` to the backend during development. See
+[`frontend/README.md`](frontend/README.md) for proxy, API-key and production
+reverse-proxy configuration.
