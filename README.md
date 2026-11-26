@@ -255,6 +255,30 @@ La web (`src/solarnexus/web/`) tiene tres partes:
 
 Arranca con un año sintético (vacaciones y una mejora de eficiencia del 8 % desde el 1 de agosto de 2026) y admite subir un CSV horario con las columnas `fecha,temperatura,humedad,actividad,area,consumo,pv`. La documentación interactiva de la API está en `/docs`.
 
+### Componente estadístico (rama `estadistica`)
+
+El **análisis econométrico** (elección del modelo, quiebres de Bai-Perron, raíz unitaria, diagnósticos e informe) se hace en **R**, en [`analisis/`](analisis/README.md). El **pronóstico operativo** que se envía al backend sigue en Python, y `analisis/contraste_python.R` comprueba que los dos lenguajes estiman lo mismo.
+
+`src/solarnexus/estadistica/` es la parte que, según el contrato del backend (`docs/API_CONTRACT.md` en la rama `C.santana`), ajusta y valida el modelo econométrico y produce los pronósticos para `POST /api/v1/forecasts`.
+
+```bash
+python -m solarnexus.estadistica validar --desde 2026-08-01            # ASHRAE 14, diagnósticos y calibración
+python -m solarnexus.estadistica pronosticar --desde 2026-08-01 --salida pronostico.json
+python -m solarnexus.estadistica pronosticar --api http://localhost:8000 --enviar   # lee /measurements y envía
+```
+
+| Paso | Qué hace |
+| :--- | :--- |
+| Ajuste | Modelo 3P log-lineal con $T_b$ por mínimo AIC; `--desde` descarta datos anteriores a un quiebre estructural. |
+| Diagnósticos | Durbin-Watson, Breusch-Godfrey (24 rezagos), Breusch-Pagan, Jarque-Bera y errores HAC de Newey-West. |
+| Validación | Backtest día a día fuera de muestra con criterios ASHRAE Guideline 14 (horario: CV(RMSE) ≤ 30 %, \|NMBE\| ≤ 10 %). |
+| Calibración | Factor $k$ que escala $\hat\sigma_f$ para que $P(\lvert e \rvert \le \delta)$ coincida con la frecuencia observada en el backtest. |
+| Pronóstico | Regresores por escenario climatológico (misma hora, últimos 28 días del mismo tipo), demanda media con corrección de Duan, salida en hora de Managua (UTC−6). |
+| Integración | Cliente HTTP sin dependencias: pagina `GET /api/v1/measurements` (humedad % → fracción, actividad 0 → 0,01) y envía el pronóstico. |
+
+> [!IMPORTANT]
+> Con los datos de demostración, la probabilidad sin calibrar promete ~95–99 % de aciertos dentro del margen, pero en el backtest solo se cumple el 62–70 %: al pronosticar con regresores esperados el modelo es demasiado confiado ($k \approx 2{,}2$–$2{,}4$). Sin calibrar, la compuerta de exportación (≥ 95 %) autorizaría decisiones que no son seguras.
+
 ### Estructura del código
 
 | Módulo | Contenido |
@@ -268,6 +292,7 @@ Arranca con un año sintético (vacaciones y una mejora de eficiencia del 8 % de
 | `src/solarnexus/indicadores.py` | Indicadores anuales de sostenibilidad y su comparación (puntos porcentuales, variación relativa, mejora). |
 | `src/solarnexus/datos.py` | Generador de datos horarios sintéticos con coeficientes conocidos; carga y exportación CSV. |
 | `src/solarnexus/web/` | API FastAPI y página web (HTML, CSS y JavaScript con Chart.js). |
+| `src/solarnexus/estadistica/` | Validación (ASHRAE 14, diagnósticos, HAC), calibración, pronóstico y cliente del backend. |
 | `src/solarnexus/__main__.py` | Demostración de punta a punta. |
 
 > [!NOTE]

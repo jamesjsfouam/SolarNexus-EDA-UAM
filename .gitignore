@@ -11,3 +11,13 @@ htmlcov/
 .idea/
 .vscode/
 datos/privados/
+
+# Análisis en R
+analisis/datos/*
+!analisis/datos/.gitkeep
+analisis/*_files/
+analisis/*.html
+analisis/.quarto/
+.Rhistory
+.RData
+.Rproj.user/
