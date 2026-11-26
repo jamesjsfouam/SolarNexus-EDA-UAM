@@ -3,8 +3,8 @@ import { BATERIA_DEFECTO, RED_MESH_DEFECTO, cargarDashboard, recalcularDespacho,
 import * as mock from './mock.js'
 import { fechaLocal, horaLocal, kwh, num1, pct, REGIMENES } from './formato.js'
 import {
-  Activity, BatteryCharging, Calculator, ChartColumn, ChartLine, DatabaseZap, Network, RefreshCw,
-  Send, Sun, Thermometer, TriangleAlert, UtilityPole, WifiOff, Zap,
+  Activity, BatteryCharging, Calculator, ChartColumn, ChartLine, CircleCheck, DatabaseZap, Network,
+  RefreshCw, Sun, Table, TriangleAlert, UtilityPole, WifiOff, Zap,
 } from 'lucide-react'
 import {
   GraficoBateria, GraficoDespacho, GraficoMedicionesEnergia, GraficoPronostico, GraficoTemperatura,
@@ -21,26 +21,77 @@ function Tile({ icono: Icono, label, valor, unidad, nota }) {
   )
 }
 
+// Mismas reglas que BatteryConfig en el back, con mensajes en lenguaje llano.
+function erroresBateria(c) {
+  const e = {}
+  if (!(c.capacity_kwh > 0)) e.capacity_kwh = 'Debe ser mayor que 0'
+  if (!(c.power_kw > 0)) e.power_kw = 'Debe ser mayor que 0'
+  if (c.initial_soc_kwh > c.capacity_kwh) e.initial_soc_kwh = 'No puede superar la capacidad'
+  if (c.min_soc_kwh > c.initial_soc_kwh) e.min_soc_kwh = 'No puede superar la carga inicial'
+  if (!(c.peak_start_hour >= 0 && c.peak_start_hour <= 23)) e.peak_start_hour = 'Entre 0 y 23'
+  if (!(c.peak_end_hour >= 1 && c.peak_end_hour <= 24)) e.peak_end_hour = 'Entre 1 y 24'
+  else if (c.peak_start_hour >= c.peak_end_hour) e.peak_end_hour = 'Debe ser después del inicio'
+  return e
+}
+
 function FormBateria({ inicial, onCalcular, ocupado }) {
   const [cfg, setCfg] = useState(inicial)
-  const campo = (clave, label) => (
-    <label>
+  const errores = erroresBateria(cfg)
+  const valido = Object.keys(errores).length === 0
+  const campo = (clave, label, max) => (
+    <label className={errores[clave] ? 'con-error' : ''}>
       {label}
-      <input type="number" min="0" value={cfg[clave]} onChange={(e) => setCfg({ ...cfg, [clave]: Number(e.target.value) })} />
+      <input type="number" min="0" max={max} value={Number.isNaN(cfg[clave]) ? '' : cfg[clave]}
+        aria-invalid={Boolean(errores[clave])} aria-describedby={errores[clave] ? `err-${clave}` : undefined}
+        onChange={(e) => setCfg({ ...cfg, [clave]: e.target.value === '' ? NaN : Number(e.target.value) })} />
+      {errores[clave] && <span className="error-campo" id={`err-${clave}`}>{errores[clave]}</span>}
     </label>
   )
   return (
-    <form className="form-bateria" onSubmit={(e) => { e.preventDefault(); onCalcular(cfg) }}>
+    <form className="form-bateria" noValidate onSubmit={(e) => { e.preventDefault(); if (valido) onCalcular(cfg) }}>
       {campo('capacity_kwh', 'Capacidad (kWh)')}
       {campo('power_kw', 'Potencia (kW)')}
       {campo('initial_soc_kwh', 'Carga inicial (kWh)')}
       {campo('min_soc_kwh', 'Reserva mínima (kWh)')}
-      {campo('peak_start_hour', 'Pico desde (h)')}
-      {campo('peak_end_hour', 'Pico hasta (h)')}
-      <button className="btn" disabled={ocupado}>
+      {campo('peak_start_hour', 'Pico desde (h)', 23)}
+      {campo('peak_end_hour', 'Pico hasta (h)', 24)}
+      <button className="btn" disabled={ocupado || !valido}>
         <Calculator size={16} aria-hidden="true" />{ocupado ? 'Calculando…' : 'Recalcular despacho'}
       </button>
     </form>
+  )
+}
+
+// Frase principal: qué parte del déficit de la franja pico cubrió la batería.
+function Protagonista({ franja, pico }) {
+  const deficit = franja.reduce((s, d) => s + Math.max(d.demanda - d.pv, 0), 0)
+  const bateria = franja.reduce((s, d) => s + d.descarga, 0)
+  const red = franja.reduce((s, d) => s + d.red, 0)
+  const rango = `de ${pico.inicio} a ${pico.fin} h`
+  let titulo
+  let detalle
+  if (deficit < 0.5) {
+    titulo = `La energía solar cubre toda la franja pico ${rango}.`
+    detalle = 'Ese día no hace falta descargar la batería para evitar la tarifa de máxima demanda.'
+  } else if (red < 0.5) {
+    titulo = `La batería cubrió el 100 % del pico ${rango}.`
+    detalle = `Se evitó comprar ${kwh(bateria)} kWh a la red nacional en tarifa de máxima demanda.`
+  } else {
+    titulo = `La batería cubrió el ${pct(bateria / deficit)} del pico ${rango}.`
+    detalle = `Evitó ${kwh(bateria)} kWh de compra en tarifa de máxima demanda; aún se compran ${kwh(red)} kWh en esa franja.`
+  }
+  return (
+    <section className="protagonista" aria-label="Resultado del despacho en la franja pico">
+      <BatteryCharging size={28} aria-hidden="true" />
+      <div>
+        <p className="protagonista-titulo">{titulo}</p>
+        <p className="protagonista-detalle">{detalle}</p>
+      </div>
+      <div className="protagonista-cifra">
+        <span>{kwh(bateria)}</span>
+        <small>kWh evitados en el pico</small>
+      </div>
+    </section>
   )
 }
 
@@ -49,11 +100,32 @@ export default function App() {
   const [bateria, setBateria] = useState(BATERIA_DEFECTO)
   const [ocupado, setOcupado] = useState(false)
   const [verTabla, setVerTabla] = useState(false)
+  const [cambio, setCambio] = useState(null) // { red: [antes, después], bateria: [antes, después] }
+
+  useEffect(() => {
+    if (!cambio) return undefined
+    const t = setTimeout(() => setCambio(null), 6000)
+    return () => clearTimeout(t)
+  }, [cambio])
 
   const cargar = useCallback(async () => {
     setEstado((s) => ({ ...s, cargando: true, error: null }))
     try {
-      setEstado({ cargando: false, ...(await cargarDashboard()) })
+      const datos = await cargarDashboard()
+      const d = datos.despacho
+      if (datos.fuente === 'api' && d) {
+        // El formulario parte de la batería con la que se calculó el último plan guardado.
+        // La API no guarda la ventana pico ni alpha/delta, así que esos se mantienen.
+        setBateria((b) => ({
+          ...b,
+          capacity_kwh: d.battery_capacity_kwh,
+          power_kw: d.battery_power_kw,
+          initial_soc_kwh: d.initial_soc_kwh,
+          min_soc_kwh: d.min_soc_kwh,
+          charge_efficiency: d.charge_efficiency,
+        }))
+      }
+      setEstado({ cargando: false, ...datos })
     } catch (err) {
       setEstado({ cargando: false, error: err.message })
     }
@@ -113,6 +185,11 @@ export default function App() {
     setOcupado(true)
     try {
       const nuevo = fuente === 'api' ? await recalcularDespacho(pronostico.id, cfg) : mock.dashboard(cfg).despacho
+      const suma = (pts, k) => pts.reduce((s, p) => s + p[k], 0)
+      setCambio({
+        red: [suma(despacho.points, 'grid_import_kwh'), suma(nuevo.points, 'grid_import_kwh')],
+        bateria: [suma(despacho.points, 'battery_discharge_kwh'), suma(nuevo.points, 'battery_discharge_kwh')],
+      })
       setBateria(cfg)
       setEstado((s) => ({ ...s, despacho: nuevo, error: null }))
     } catch (err) {
@@ -192,16 +269,14 @@ export default function App() {
 
       {!sinDatos && despacho && (
         <>
+          <Protagonista franja={horaPico} pico={pico} />
+
           <section className="tiles">
             <Tile icono={Zap} label="Demanda prevista" valor={kwh(totales.demanda)} unidad="kWh" nota="Total del día" />
-            <Tile icono={Sun} label="Generación solar" valor={kwh(totales.pv)} unidad="kWh" nota={`${pct(totales.pv / totales.demanda)} de la demanda`} />
+            <Tile icono={Sun} label="Generación solar" valor={kwh(totales.pv)} unidad="kWh"
+              nota={`${pct(totales.pv / totales.demanda)} de la demanda · ${kwh(totales.exporta)} kWh exportados`} />
             <Tile icono={UtilityPole} label="Compra a la red" valor={kwh(totales.red)} unidad="kWh" nota={`${kwh(redEnPico)} kWh en la franja pico`} />
             <Tile icono={BatteryCharging} label="Aporte de la batería" valor={kwh(totales.descarga)} unidad="kWh" nota={`${kwh(bateriaEnPico)} kWh en la franja pico`} />
-            <Tile icono={Send} label="Exportación al SIN" valor={kwh(totales.exporta)} unidad="kWh" />
-            {medicion && (
-              <Tile icono={Thermometer} label="Última medición" valor={num1(medicion.temperature_c)} unidad="°C"
-                nota={`Humedad ${kwh(medicion.humidity_pct)} % · ${kwh(medicion.consumption_kwh ?? 0)} kWh`} />
-            )}
           </section>
 
           <div className="grid-2">
@@ -209,7 +284,7 @@ export default function App() {
               <div className="card-head">
                 <div>
                   <h2><ChartLine size={18} aria-hidden="true" />Pronóstico de 24 horas</h2>
-                  <div className="sub">Modelo {pronostico.model_name} v{pronostico.model_version}</div>
+                  <div className="sub">kWh por hora · modelo {pronostico.model_name} v{pronostico.model_version}</div>
                 </div>
               </div>
               <GraficoPronostico datos={seriePronostico} pico={pico} />
@@ -219,7 +294,7 @@ export default function App() {
               <div className="card-head">
                 <div>
                   <h2><BatteryCharging size={18} aria-hidden="true" />Batería</h2>
-                  <div className="sub">Energía guardada al final de cada hora · termina en {kwh(despacho.final_soc_kwh)} kWh</div>
+                  <div className="sub">kWh guardados al final de cada hora · termina en {kwh(despacho.final_soc_kwh)} kWh</div>
                 </div>
               </div>
               <GraficoBateria datos={serieDespacho} capacidad={despacho.battery_capacity_kwh} minimo={despacho.min_soc_kwh} pico={pico} />
@@ -230,9 +305,11 @@ export default function App() {
             <div className="card-head">
               <div>
                 <h2><ChartColumn size={18} aria-hidden="true" />Despacho por hora</h2>
-                <div className="sub">De dónde sale la energía que consume el campus y en qué modo opera el sistema</div>
+                <div className="sub">kWh por hora · de dónde sale la energía que consume el campus y en qué modo opera el sistema</div>
               </div>
-              <button className="toggle" onClick={() => setVerTabla(!verTabla)}>{verTabla ? 'Ocultar tabla' : 'Ver tabla'}</button>
+              <button className="toggle" aria-expanded={verTabla} onClick={() => setVerTabla(!verTabla)}>
+                <Table size={16} aria-hidden="true" />{verTabla ? 'Ocultar tabla' : 'Ver tabla'}
+              </button>
             </div>
             <GraficoDespacho datos={serieDespacho} pico={pico} />
             {verTabla && (
@@ -257,7 +334,17 @@ export default function App() {
                 <div className="sub">Valores en kWh.</div>
               </div>
             )}
-            <FormBateria inicial={bateria} onCalcular={recalcular} ocupado={ocupado} />
+            <FormBateria key={JSON.stringify(bateria)} inicial={bateria} onCalcular={recalcular} ocupado={ocupado} />
+            <div className="cambio" role="status" aria-live="polite">
+              {cambio && (
+                <>
+                  <CircleCheck size={16} aria-hidden="true" />
+                  Despacho recalculado. Compra a la red: {kwh(cambio.red[0])} → {kwh(cambio.red[1])} kWh
+                  ({cambio.red[1] - cambio.red[0] >= 0 ? '+' : '−'}{kwh(Math.abs(cambio.red[1] - cambio.red[0]))}) ·
+                  batería: {kwh(cambio.bateria[0])} → {kwh(cambio.bateria[1])} kWh
+                </>
+              )}
+            </div>
           </section>
 
           <section className="card">
@@ -266,7 +353,7 @@ export default function App() {
                 <h2><Activity size={18} aria-hidden="true" />Mediciones recientes</h2>
                 <div className="sub">
                   {serieMediciones.length
-                    ? `Últimas ${serieMediciones.length} horas registradas en el campus`
+                    ? `Últimas ${serieMediciones.length} horas registradas en el campus · ahora ${num1(medicion.temperature_c)} °C y ${kwh(medicion.humidity_pct)} % de humedad`
                     : 'Todavía no hay mediciones registradas'}
                 </div>
               </div>
