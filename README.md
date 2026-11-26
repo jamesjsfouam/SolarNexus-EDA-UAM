@@ -228,3 +228,30 @@ Si el **precio sombra** de transferir energía hacia el nodo vecino es menor que
 - **Optimización y Precios Sombra:** Formulación MILP (*Mixed-Integer Linear Programming*) para extracción de variables duales nodales.
 - **Fuentes de Telemetría y Contexto:** Estación meteorológica **Copérnico**, **Registro Académico UAM** y planta fotovoltaica **Solar Jaguar**.
 - **Documento Base:** *Whitepaper: Optimización ambiental sin hardware en el campus UAM (Managua)*.
+---
+
+## 🚀 Puesta en marcha (bases del sistema)
+
+El repositorio incluye ya una primera implementación en Python de los cuatro bloques de la arquitectura. Por ahora funciona con **datos sintéticos** generados con el propio modelo 3P; el siguiente paso es conectarla a las series reales de Copérnico, el registro académico y Solar Jaguar.
+
+```bash
+python -m pip install -e ".[dev]"
+python -m solarnexus                  # pronóstico + despacho de un día laborable
+python -m solarnexus --dia finde      # día de fin de semana (régimen de exportación)
+python -m pytest                      # pruebas
+```
+
+### Estructura del código
+
+| Módulo | Contenido |
+| :--- | :--- |
+| `src/solarnexus/config.py` | Parámetros: ventana pico (14–17 h), $\alpha$, $\delta$ y rejilla de $T_b$. |
+| `src/solarnexus/balance.py` | Ecuaciones de balance base y extendida; `FlujosEnergia` valida que cada intervalo cuadre. |
+| `src/solarnexus/oraculo.py` | Modelo 3P log-lineal por MCO, selección de $T_b$ por mínimo AIC (también en escala EViews), error estándar del pronóstico y $P(\lvert Z\rvert \le \delta/\hat\sigma_f)$. |
+| `src/solarnexus/despacho.py` | Batería y controlador con los regímenes de carga, *peak shaving*, exportación y autoconsumo. |
+| `src/solarnexus/mesh.py` | Red mesh DC como MILP (switches binarios) y precios sombra $\lambda_i$ como duales del PL con los switches fijos. |
+| `src/solarnexus/datos.py` | Generador de datos horarios sintéticos con coeficientes conocidos. |
+| `src/solarnexus/__main__.py` | Demostración de punta a punta. |
+
+> [!NOTE]
+> Decisiones de esta primera versión que conviene revisar: intervalos horarios (el $CDD$ se calcula como grados-hora), el excedente que no cabe en la batería durante el régimen de carga se exporta en lugar de desperdiciarse, y la batería solo descarga dentro de la ventana pico.
