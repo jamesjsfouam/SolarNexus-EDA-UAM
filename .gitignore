@@ -18,3 +18,14 @@ datos/privados/
 # React/Vite frontend
 frontend/node_modules/
 frontend/dist/
+
+# Análisis en R
+analisis/datos/*
+!analisis/datos/.gitkeep
+analisis/*_files/
+analisis/*.html
+analisis/.quarto/
+.Rhistory
+.RData
+.Rproj.user/
+analisis/figure/

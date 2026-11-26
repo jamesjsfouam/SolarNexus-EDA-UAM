@@ -1,0 +1,194 @@
+---
+title: "SolarNexus · Análisis econométrico del consumo eléctrico de la UAM"
+subtitle: "Modelo 3P de ASHRAE: especificación, diagnósticos, validación y quiebres estructurales"
+lang: es
+format:
+  html:
+    toc: true
+    embed-resources: true
+    code-fold: true
+execute:
+  warning: false
+params:
+  datos: "datos/solarnexus_datos.csv"
+  desde: ""                 # AAAA-MM-DD: descartar datos anteriores (quiebre conocido)
+  inicio_prueba: ""         # AAAA-MM-DD: inicio del periodo fuera de muestra; vacío = últimos 28 días
+  dias_prueba: 28
+  rejilla_tb: "22:30"
+---
+
+```{r}
+#| label: preparar
+#| include: false
+source("R/funciones.R")
+library(knitr)
+desde <- if (nzchar(params$desde)) params$desde else NULL
+d <- leer_datos(params$datos, desde = desde)
+rejilla <- eval(parse(text = params$rejilla_tb))
+fin <- max(d$dia)
+inicio_prueba <- if (nzchar(params$inicio_prueba)) as.Date(params$inicio_prueba) else fin - params$dias_prueba + 1
+entreno <- d[d$dia < inicio_prueba, ]
+prueba <- d[d$dia >= inicio_prueba & d$dia < inicio_prueba + params$dias_prueba, ]
+fmt <- function(x, dec = 3) formatC(x, format = "f", digits = dec, big.mark = ",")
+```
+
+**Datos:** `r params$datos` · `r fmt(nrow(d), 0)` horas, del `r min(d$dia)` al `r fin`
+`r if (!is.null(desde)) paste0("(desde ", desde, ")") else ""`. Estimación con los datos anteriores
+al `r inicio_prueba`; validación fuera de muestra con los `r length(unique(prueba$dia))` días siguientes.
+
+## 1. Datos
+
+```{r}
+#| label: fig-consumo
+#| fig-cap: "Consumo diario. La línea vertical marca el inicio del periodo de prueba."
+diario_bruto <- aggregate(consumo ~ dia, data = d, FUN = sum)
+plot(diario_bruto$dia, diario_bruto$consumo, type = "l", col = "#0ea5e9",
+     xlab = NULL, ylab = "kWh/día", las = 1)
+abline(v = inicio_prueba, lty = 2, col = "grey40")
+```
+
+```{r}
+#| label: tbl-resumen
+kable(summary(d[, c("consumo", "temperatura", "humedad", "actividad", "area", "pv")]),
+      caption = "Resumen de las variables horarias")
+```
+
+## 2. Temperatura base por mínimo AIC
+
+```{r}
+#| label: tbl-tb
+sel <- seleccionar_tb(entreno, rejilla)
+m <- sel$modelo
+kable(transform(sel$tabla, aic = fmt(aic, 1), aic_eviews = fmt(aic_eviews, 4), r2 = fmt(r2, 4)),
+      caption = "AIC por temperatura base (AIC de R = AIC de Python + 2; la escala EViews coincide)")
+```
+
+```{r}
+#| label: fig-aic
+#| fig-cap: "AIC según la temperatura base."
+plot(sel$tabla$tb, sel$tabla$aic, type = "b", pch = 19, xlab = "Tb (°C)", ylab = "AIC", las = 1)
+abline(v = sel$tb, lty = 2, col = "#3f9b35")
+```
+
+La temperatura base elegida es **`r sel$tb` °C** (R² = `r fmt(summary(m)$r.squared, 4)`).
+
+## 3. Coeficientes con errores HAC
+
+```{r}
+#| label: tbl-coef
+coef_hac <- coeficientes_hac(m)
+kable(transform(coef_hac, valor = fmt(valor, 4), ee_mco = fmt(ee_mco, 4), ee_hac = fmt(ee_hac, 4),
+                t_hac = fmt(t_hac, 2), p_hac = format.pval(p_hac, digits = 3)),
+      caption = paste0("Errores estándar de Newey-West con ", rezagos_newey_west(nobs(m)), " rezagos"))
+```
+
+`b3` y `b4` son **elasticidades** del consumo respecto a la actividad académica y al área climatizada;
+`b1` es la semielasticidad por grado-hora de enfriamiento: cada grado-hora adicional sobre
+`r sel$tb` °C sube el consumo de esa hora un `r fmt(100 * (exp(coef(m)[["cdd"]]) - 1), 2)` %.
+
+## 4. Diagnósticos de los residuos
+
+```{r}
+#| label: tbl-diag
+diag <- diagnosticos(m)
+kable(transform(diag$pruebas, estadistico = fmt(estadistico, 3), p_valor = format.pval(p_valor, digits = 3)),
+      caption = "Pruebas sobre los residuos (escala logarítmica)")
+```
+
+```{r}
+#| label: fig-residuos
+#| fig-cap: "Residuos: autocorrelación y normalidad."
+#| fig-height: 3.5
+op <- par(mfrow = c(1, 2))
+acf(residuals(m), lag.max = 72, main = "ACF de los residuos")
+qqnorm(residuals(m), main = "Q-Q normal", pch = ".")
+qqline(residuals(m), col = "red")
+par(op)
+```
+
+Factor de Duan para volver de logaritmos a kWh: **`r fmt(diag$factor_duan, 4)`**.
+Si Breusch-Godfrey rechaza, los errores MCO subestiman la incertidumbre: la inferencia debe usar
+la columna HAC. Si Jarque-Bera rechaza, la probabilidad de caer en el margen debe calibrarse
+empíricamente (lo hace `python -m solarnexus.estadistica validar`).
+
+## 5. Validación ASHRAE Guideline 14
+
+```{r}
+#| label: tbl-ashrae
+dentro <- metricas_ashrae(entreno$consumo, predecir_kwh(m, entreno, diag$factor_duan), p = length(coef(m)))
+fuera <- metricas_ashrae(prueba$consumo, predecir_kwh(m, prueba, diag$factor_duan))
+prueba$estimado <- predecir_kwh(m, prueba, diag$factor_duan)
+dia_prueba <- aggregate(cbind(consumo, estimado) ~ dia, data = prueba, FUN = sum)
+fuera_dia <- metricas_ashrae(dia_prueba$consumo, dia_prueba$estimado, frecuencia = "diario")
+tabla <- rbind(cbind(muestra = "dentro (horario)", dentro), cbind(muestra = "fuera (horario)", fuera),
+               cbind(muestra = "fuera (diario)", fuera_dia))
+kable(transform(tabla, cv_rmse_pct = fmt(cv_rmse_pct, 1), nmbe_pct = fmt(nmbe_pct, 2),
+                r2 = fmt(r2, 4), mape_pct = fmt(mape_pct, 1)),
+      caption = "Criterios: horario CV(RMSE) ≤ 30 % y |NMBE| ≤ 10 %; diario ≤ 25 % y ±10 %")
+```
+
+::: {.callout-note}
+Esta validación es *ex post*: usa el clima y la actividad **observados** en los días de prueba.
+La validación *ex ante* (con regresores esperados, como en operación) y la calibración de la
+probabilidad están en el componente de Python.
+:::
+
+## 6. Quiebres estructurales (Bai-Perron)
+
+```{r}
+#| label: quiebres
+diario <- agregar_diario(d, sel$tb)
+q <- quiebres_diarios(diario)
+```
+
+Prueba supF de un cambio en los coeficientes: F = `r fmt(unname(q$supf$statistic), 2)`,
+p = `r format.pval(q$supf$p.value, digits = 3)`.
+Número de quiebres elegido por BIC: **`r length(q$fechas)`**
+`r if (length(q$fechas)) paste0("(nuevo régimen desde ", paste(q$fechas, collapse = ", "), ")") else ""`.
+
+```{r}
+#| label: tbl-quiebres
+if (!is.null(q$intervalos)) kable(q$intervalos, caption = "Primer día de cada nuevo régimen, con intervalo de confianza del 95 %")
+```
+
+```{r}
+#| label: fig-quiebres
+#| fig-cap: "Consumo diario y quiebres estimados."
+plot(diario$dia, log(diario$consumo), type = "l", col = "grey50", xlab = NULL, ylab = "ln kWh/día", las = 1)
+if (length(q$fechas)) abline(v = q$fechas, col = "red", lwd = 2)
+```
+
+Si aparece un quiebre que coincide con un evento conocido (entrada de una etapa solar, Copérnico,
+certificación ISO), la línea base para pronosticar debe estimarse **después** de esa fecha
+(opción `--desde` de Python). Si aparece uno que nadie documentó, hay un evento que investigar.
+
+## 7. Raíz unitaria del consumo diario
+
+```{r}
+#| label: tbl-raiz
+kable(transform(raiz_unitaria(log(diario$consumo)), estadistico = fmt(estadistico, 3),
+                p_valor = format.pval(p_valor, digits = 3)),
+      caption = "ln del consumo diario (los p-valores de tseries están acotados entre 0,01 y 0,1)")
+```
+
+Si ADF no rechaza y KPSS rechaza, la serie no es estacionaria: conviene estimar en diferencias o
+comprobar cointegración con los grados-día y la actividad.
+
+## 8. Conclusiones automáticas
+
+```{r}
+#| label: conclusiones
+#| results: asis
+avisos <- c(
+  if (!fuera$cumple) "- El modelo **no cumple** ASHRAE 14 fuera de muestra (horario).",
+  if (fuera$cumple) "- El modelo **cumple** ASHRAE 14 fuera de muestra (horario).",
+  if (diag$pruebas$p_valor[2] < 0.05) "- Hay autocorrelación: usar errores HAC para la inferencia.",
+  if (diag$pruebas$p_valor[3] < 0.05) "- Hay heterocedasticidad.",
+  if (diag$pruebas$p_valor[4] < 0.05) "- Los residuos no son normales: calibrar la probabilidad empíricamente.",
+  if (length(q$fechas)) paste0("- Quiebres detectados: nuevo régimen desde ", paste(q$fechas, collapse = ", "),
+                               ". Considerar `--desde ", max(q$fechas), "` para la línea base."),
+  if (abs(fuera$nmbe_pct) > 5) paste0("- Sesgo fuera de muestra de ", fmt(fuera$nmbe_pct, 1),
+                                      " %: posible cambio de régimen no recogido por el modelo.")
+)
+cat(avisos, sep = "\n")
+```
