@@ -1,0 +1,133 @@
+:root {
+  --fondo: #f5f7fb;
+  --tarjeta: #ffffff;
+  --texto: #1c2433;
+  --suave: #5b6578;
+  --borde: #dde3ee;
+  --acento: #0ea5e9;
+  --acento-texto: #ffffff;
+  --a: #1e3a8a;
+  --b: #3f9b35;
+  --bien: #059669;
+  --mal: #dc2626;
+  --fondo-bien: #ecfdf5;
+  --fondo-neutro: #f1f5f9;
+  --sombra: 0 1px 3px rgba(15, 23, 42, .08);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --fondo: #0f1420;
+    --tarjeta: #171e2d;
+    --texto: #e6eaf2;
+    --suave: #9aa4b8;
+    --borde: #2a3446;
+    --fondo-bien: #0b2a22;
+    --fondo-neutro: #1e2738;
+    --sombra: none;
+    --a: #6b8cff;
+    --b: #5cc45a;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--fondo);
+  color: var(--texto);
+}
+.cabecera {
+  display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center;
+  padding: 20px 16px; max-width: 1100px; margin: 0 auto;
+}
+h1 { margin: 0; font-size: 1.5rem; }
+h1 span { color: var(--suave); font-weight: 500; }
+.cabecera p { margin: 2px 0 0; color: var(--suave); }
+.insignia {
+  padding: 4px 12px; border-radius: 999px; background: var(--fondo-neutro);
+  border: 1px solid var(--borde); color: var(--suave); font-size: .85rem;
+}
+main { max-width: 1100px; margin: 0 auto; padding: 0 16px 24px; display: grid; gap: 16px; }
+.tarjeta {
+  background: var(--tarjeta); border: 1px solid var(--borde); border-radius: 12px;
+  padding: 18px; box-shadow: var(--sombra); min-width: 0;
+}
+h2 { margin: 0 0 12px; font-size: 1.15rem; }
+h3 { margin: 22px 0 6px; font-size: 1rem; }
+.nota { color: var(--suave); font-size: .88rem; }
+.error { color: var(--mal); font-weight: 500; }
+code { font-size: .85em; }
+
+.acciones { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.boton {
+  display: inline-block; border: 1px solid var(--acento); background: var(--acento); color: var(--acento-texto);
+  border-radius: 8px; padding: 7px 14px; font: inherit; font-weight: 600; cursor: pointer; text-decoration: none;
+}
+.boton.secundario { background: transparent; color: var(--acento); }
+.boton:disabled { opacity: .6; cursor: progress; }
+
+.formulario { display: flex; flex-wrap: wrap; gap: 12px; }
+fieldset {
+  border: 1px solid var(--borde); border-radius: 10px; padding: 10px 12px;
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin: 0; min-width: 0;
+}
+legend { font-weight: 600; padding: 0 4px; display: flex; align-items: center; gap: 6px; }
+label { display: flex; flex-direction: column; font-size: .85rem; color: var(--suave); gap: 3px; }
+label.check { flex-direction: row; align-items: center; gap: 6px; }
+input, select {
+  font: inherit; color: var(--texto); background: var(--tarjeta);
+  border: 1px solid var(--borde); border-radius: 6px; padding: 5px 8px; max-width: 100%;
+}
+input[type=number] { width: 110px; }
+.punto { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.punto.a { background: var(--a); }
+.punto.b { background: var(--b); }
+
+.veredicto { margin-top: 16px; padding: 12px 14px; border-radius: 10px; background: var(--fondo-neutro); }
+.veredicto.cambio { background: var(--fondo-bien); }
+.veredicto strong { display: block; margin-bottom: 2px; }
+
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin: 14px 0; }
+.kpi { border: 1px solid var(--borde); border-radius: 10px; padding: 10px 12px; }
+.kpi .etiqueta { font-size: .8rem; color: var(--suave); }
+.kpi .valor { font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kpi .detalle { font-size: .78rem; color: var(--suave); }
+.positivo { color: var(--bien); }
+.negativo { color: var(--mal); }
+
+.grafico { position: relative; height: 300px; margin: 8px 0; }
+.tabla-scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: .88rem; }
+th, td { padding: 6px 8px; border-bottom: 1px solid var(--borde); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--suave); font-weight: 600; }
+tr.signif td { font-weight: 600; }
+.chip { padding: 1px 8px; border-radius: 999px; font-size: .78rem; background: var(--fondo-neutro); }
+
+footer { text-align: center; color: var(--suave); font-size: .85rem; padding: 12px 16px 28px; }
+footer a { color: var(--acento); }
+
+.titulo-seccion { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 10px; }
+.titulo-seccion h2 { margin: 0; }
+.selector-periodos { display: flex; gap: 10px; }
+.indicadores { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin: 14px 0; }
+.indicador { border: 1px solid var(--borde); border-radius: 12px; padding: 12px 14px; display: grid; gap: 6px; }
+.indicador .nombre { font-weight: 600; font-size: .9rem; }
+.indicador .valores { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.indicador .valores div { display: grid; }
+.indicador .periodo { font-size: .75rem; font-weight: 700; color: var(--suave); }
+.indicador .num { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.indicador .num.a { color: var(--a); }
+.indicador .num.b { color: var(--b); }
+.indicador .unidad { font-size: .75rem; color: var(--suave); }
+.cambio { justify-self: start; padding: 2px 10px; border-radius: 999px; font-size: .82rem; font-weight: 600; background: var(--fondo-neutro); }
+.cambio.mejora { background: var(--fondo-bien); color: var(--bien); }
+.cambio.empeora { color: var(--mal); }
+.grafico.bajo { height: 220px; }
+table.editable input { width: 110px; }
+table.editable td { padding: 4px; }
+details summary { cursor: pointer; font-weight: 600; margin-top: 6px; }
+.aviso { border: 1px solid #f59e0b; background: #f59e0b14; border-radius: 10px; padding: 10px 14px; margin: 10px 0; font-size: .88rem; }
+.aviso ul { margin: 6px 0 0; padding-left: 18px; }
+.aviso li { margin: 3px 0; }
+.indicador.derivado { border-style: dashed; }

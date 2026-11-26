@@ -1,0 +1,32 @@
+{
+  "fuente": "Informe de Sostenibilidad 2025 de la UAM (infografías): https://www.uam.edu.ni/informe-sostenibilidad-2025/ . Ver docs/investigacion-sistema-electrico-uam.md",
+  "periodos": [
+    {
+      "periodo": "2024",
+      "pct_solar": 25,
+      "intensidad_kwh_m2": 104,
+      "emisiones_brutas_kg": 239659.39,
+      "co2_evitado_kg": 83697.97,
+      "exportacion_kwh": null,
+      "comunidad_personas": 6288,
+      "nota": "Sin contrato de inyección a la red. CO₂ evitado de la infografía de emisiones brutas; otra infografía da 77,394.36 kg."
+    },
+    {
+      "periodo": "2025",
+      "pct_solar": 34,
+      "intensidad_kwh_m2": 102,
+      "emisiones_brutas_kg": 184907.58,
+      "co2_evitado_kg": 143785.35,
+      "exportacion_kwh": 60200,
+      "comunidad_personas": 7225,
+      "nota": "Contrato de inyección al SIN firmado en junio de 2025."
+    }
+  ],
+  "advertencias": [
+    "La UAM publica 51.43 y 45.49 kg CO₂/persona, que son (brutas + evitadas) / comunidad: no son emisiones reales. Aquí se muestra también el per cápita real (brutas / comunidad).",
+    "CO₂ evitado en 2024: los informes dan cuatro valores (239,299; 84,000; 83,697.97 y 77,394.36 kg). Se usa 83,697.97 kg porque es el único coherente con el per cápita y el 25 % solar. La infografía de 66,390.99 kg de mejora usa 77,394.36.",
+    "El informe 2025 dice que las emisiones brutas aumentaron, pero su propio gráfico las muestra bajando de 239,659 a 184,908 kg.",
+    "Los 41,122.23 kg que el informe presenta como reducción son el impacto neto de 2025 (brutas − evitadas), no la reducción.",
+    "Intensidad energética 2024: el informe 2024 dice 88 kWh/m²·año y el de 2025, 104. Se usa 104 para comparar con 2025 con la misma base."
+  ]
+}

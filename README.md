@@ -239,7 +239,21 @@ python -m pip install -e ".[dev]"
 python -m solarnexus                  # pronóstico + despacho de un día laborable
 python -m solarnexus --dia finde      # día de fin de semana (régimen de exportación)
 python -m pytest                      # pruebas
+
+# Web (API FastAPI + página): http://127.0.0.1:8000
+python -m pip install -e ".[web]"
+solarnexus-web
 ```
+
+### Web: indicadores, análisis entre periodos y despacho
+
+La web (`src/solarnexus/web/`) tiene tres partes:
+
+1. **Indicadores de sostenibilidad entre periodos**: participación de Solar Jaguar en la matriz eléctrica, intensidad energética (kWh/m²/año), CO₂ evitado, excedente inyectado al SIN, comunidad UAM y emisiones per cápita y totales, con los valores oficiales 2024–2025 (`src/solarnexus/indicadores_uam.json`). Se pueden editar y añadir periodos desde la propia página.
+2. **Análisis econométrico entre dos rangos de fechas**: estima el modelo 3P en cada periodo con la misma $T_b$ (mínimo AIC sobre los datos conjuntos) y muestra el **test de Chow**, la diferencia de cada coeficiente con su p-valor, el AIC de un modelo común frente a modelos separados y el **ahorro normalizado**: el consumo que el periodo B habría tenido con el modelo de A, frente al real.
+3. **Despacho predictivo de un día**: entrena el oráculo con los datos anteriores a la fecha elegida y planifica la batería hora a hora.
+
+Arranca con un año sintético (vacaciones y una mejora de eficiencia del 8 % desde el 1 de agosto de 2026) y admite subir un CSV horario con las columnas `fecha,temperatura,humedad,actividad,area,consumo,pv`. La documentación interactiva de la API está en `/docs`.
 
 ### Estructura del código
 
@@ -250,8 +264,11 @@ python -m pytest                      # pruebas
 | `src/solarnexus/oraculo.py` | Modelo 3P log-lineal por MCO, selección de $T_b$ por mínimo AIC (también en escala EViews), error estándar del pronóstico y $P(\lvert Z\rvert \le \delta/\hat\sigma_f)$. |
 | `src/solarnexus/despacho.py` | Batería y controlador con los regímenes de carga, *peak shaving*, exportación y autoconsumo. |
 | `src/solarnexus/mesh.py` | Red mesh DC como MILP (switches binarios) y precios sombra $\lambda_i$ como duales del PL con los switches fijos. |
-| `src/solarnexus/datos.py` | Generador de datos horarios sintéticos con coeficientes conocidos. |
+| `src/solarnexus/periodos.py` | Comparación entre periodos: test de Chow, diferencias de coeficientes, AIC y ahorro normalizado. |
+| `src/solarnexus/indicadores.py` | Indicadores anuales de sostenibilidad y su comparación (puntos porcentuales, variación relativa, mejora). |
+| `src/solarnexus/datos.py` | Generador de datos horarios sintéticos con coeficientes conocidos; carga y exportación CSV. |
+| `src/solarnexus/web/` | API FastAPI y página web (HTML, CSS y JavaScript con Chart.js). |
 | `src/solarnexus/__main__.py` | Demostración de punta a punta. |
 
 > [!NOTE]
-> Decisiones de esta primera versión que conviene revisar: intervalos horarios (el $CDD$ se calcula como grados-hora), el excedente que no cabe en la batería durante el régimen de carga se exporta en lugar de desperdiciarse, y la batería solo descarga dentro de la ventana pico.
+> Decisiones de esta primera versión que conviene revisar: intervalos horarios (el $CDD$ se calcula como grados-hora), el excedente que no cabe en la batería durante el régimen de carga se exporta en lugar de desperdiciarse, y, en días con pico previsto, la batería descarga en la ventana pico y después usa lo que le quede para cubrir el déficit de la tarde-noche (`descarga_tras_pico`, desactivable en `Parametros`).

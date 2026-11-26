@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SolarNexus UAM</title>
+  <link rel="stylesheet" href="/estatico/estilos.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+  <script defer src="/estatico/app.js"></script>
+</head>
+<body>
+<header class="cabecera">
+  <div>
+    <h1>☀️ SolarNexus <span>Campus UAM</span></h1>
+    <p>Modelo econométrico 3P, comparación entre periodos y despacho predictivo</p>
+  </div>
+  <div id="insignia-datos" class="insignia">Cargando datos…</div>
+</header>
+
+<main>
+  <!-- 0. Indicadores institucionales -->
+  <section class="tarjeta">
+    <div class="titulo-seccion">
+      <h2>Indicadores de sostenibilidad entre periodos</h2>
+      <div class="selector-periodos">
+        <label>Periodo A <select id="ind-a"></select></label>
+        <label>Periodo B <select id="ind-b"></select></label>
+      </div>
+    </div>
+    <p class="nota">Valores anuales del Informe de Sostenibilidad de la UAM y cálculos derivados ("calculado").
+      Verde = mejora, rojo = empeora, gris = sin juicio. Detalle en <code>docs/investigacion-sistema-electrico-uam.md</code>.</p>
+    <p id="error-indicadores" class="error" hidden></p>
+    <div id="advertencias-indicadores" class="aviso" hidden></div>
+    <div id="tarjetas-indicadores" class="indicadores"></div>
+    <div class="grafico bajo"><canvas id="grafico-co2"></canvas></div>
+    <details>
+      <summary>Editar o añadir periodos</summary>
+      <div class="tabla-scroll"><table id="tabla-indicadores" class="editable"></table></div>
+      <div class="acciones">
+        <button id="ind-anadir" class="boton secundario" type="button">Añadir periodo</button>
+        <button id="ind-guardar" class="boton" type="button">Recalcular</button>
+        <button id="ind-restablecer" class="boton secundario" type="button">Restablecer valores oficiales</button>
+      </div>
+      <p class="nota">Los cambios se guardan en memoria mientras la web está abierta; para hacerlos permanentes edita <code>src/solarnexus/indicadores_uam.json</code>.</p>
+    </details>
+  </section>
+
+  <!-- 1. Datos -->
+  <section class="tarjeta">
+    <h2>1. Datos horarios</h2>
+    <p id="info-datos" class="nota">—</p>
+    <div class="acciones">
+      <label class="boton secundario">
+        Cargar CSV
+        <input id="csv" type="file" accept=".csv,text/csv" hidden>
+      </label>
+      <button id="usar-demo" class="boton secundario" type="button">Usar datos de demostración</button>
+      <a class="boton secundario" href="/api/datos.csv">Descargar CSV</a>
+    </div>
+    <details class="nota">
+      <summary>Formato del CSV</summary>
+      <p>Una fila por hora con cabecera <code>fecha,temperatura,humedad,actividad,area,consumo,pv</code>.
+        Fecha ISO (<code>2026-01-05T14:00</code>), temperatura en °C, humedad en fracción o %, actividad en (0, 1],
+        área climatizada en m², consumo y PV en kWh. <code>pv</code> es opcional.</p>
+    </details>
+  </section>
+
+  <!-- 2. Periodos -->
+  <section class="tarjeta">
+    <h2>2. Análisis econométrico entre periodos</h2>
+    <form id="form-periodos" class="formulario">
+      <fieldset>
+        <legend><span class="punto a"></span>Periodo A (referencia)</legend>
+        <label>Desde <input type="date" name="a_inicio" required></label>
+        <label>Hasta <input type="date" name="a_fin" required></label>
+      </fieldset>
+      <fieldset>
+        <legend><span class="punto b"></span>Periodo B (comparación)</legend>
+        <label>Desde <input type="date" name="b_inicio" required></label>
+        <label>Hasta <input type="date" name="b_fin" required></label>
+      </fieldset>
+      <fieldset>
+        <legend>Modelo</legend>
+        <label>Temperatura base T<sub>b</sub>
+          <select name="tb">
+            <option value="">Automática (mínimo AIC)</option>
+          </select>
+        </label>
+        <button class="boton" type="submit">Analizar</button>
+      </fieldset>
+    </form>
+    <p id="error-periodos" class="error" hidden></p>
+
+    <div id="resultado-periodos" hidden>
+      <div id="veredicto" class="veredicto"></div>
+      <div class="kpis" id="kpis-periodos"></div>
+      <div class="grafico"><canvas id="grafico-diario"></canvas></div>
+
+      <h3>Coeficientes del modelo 3P</h3>
+      <p class="nota">ln C = b0 + b1·CDD(T<sub>b</sub>) + b2·HUM + b3·ln ACT + b4·ln AREA. Diferencia = B − A; p-valor de la diferencia.</p>
+      <div class="tabla-scroll"><table id="tabla-coef"></table></div>
+
+      <h3>Resumen por periodo</h3>
+      <div class="tabla-scroll"><table id="tabla-resumen"></table></div>
+      <p class="nota">Con datos horarios los residuos suelen estar autocorrelacionados y los p-valores salen optimistas;
+        confirma los cambios importantes con datos diarios.</p>
+    </div>
+  </section>
+
+  <!-- 3. Despacho -->
+  <section class="tarjeta">
+    <h2>3. Despacho predictivo de un día</h2>
+    <form id="form-despacho" class="formulario">
+      <fieldset>
+        <legend>Día y batería</legend>
+        <label>Fecha <input type="date" name="fecha" required></label>
+        <label>Capacidad (kWh) <input type="number" name="capacidad_kwh" value="1500" min="1" step="1"></label>
+        <label>Potencia (kW) <input type="number" name="potencia_kw" value="300" min="1" step="1"></label>
+        <label>Reserva (kWh) <input type="number" name="reserva_kwh" value="150" min="0" step="1"></label>
+        <label class="check"><input type="checkbox" name="descarga_tras_pico" checked> Descargar tras el pico</label>
+        <button class="boton" type="submit">Planificar</button>
+      </fieldset>
+    </form>
+    <p id="error-despacho" class="error" hidden></p>
+    <div id="resultado-despacho" hidden>
+      <div class="kpis" id="kpis-despacho"></div>
+      <div class="grafico"><canvas id="grafico-despacho"></canvas></div>
+      <div class="tabla-scroll"><table id="tabla-despacho"></table></div>
+    </div>
+  </section>
+</main>
+<footer>SolarNexus-EDA-UAM · <a href="/docs">API</a></footer>
+</body>
+</html>

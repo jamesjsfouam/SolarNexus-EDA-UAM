@@ -57,6 +57,27 @@ class Observaciones:
     def __len__(self) -> int:
         return len(np.atleast_1d(self.temperatura))
 
+    def filtrar(self, mascara: np.ndarray) -> Observaciones:
+        return Observaciones(
+            temperatura=np.asarray(self.temperatura)[mascara],
+            humedad=np.asarray(self.humedad)[mascara],
+            actividad=np.asarray(self.actividad)[mascara],
+            area=np.asarray(self.area)[mascara],
+            consumo=None if self.consumo is None else np.asarray(self.consumo)[mascara],
+        )
+
+    @staticmethod
+    def concatenar(a: Observaciones, b: Observaciones) -> Observaciones:
+        if (a.consumo is None) != (b.consumo is None):
+            raise ValueError("Ambas series deben tener consumo, o ninguna")
+        return Observaciones(
+            temperatura=np.concatenate([a.temperatura, b.temperatura]),
+            humedad=np.concatenate([a.humedad, b.humedad]),
+            actividad=np.concatenate([a.actividad, b.actividad]),
+            area=np.concatenate([a.area, b.area]),
+            consumo=None if a.consumo is None else np.concatenate([a.consumo, b.consumo]),
+        )
+
     def matriz(self, tb: float) -> np.ndarray:
         """Matriz de diseño X con constante."""
         return np.column_stack(
@@ -102,10 +123,15 @@ class ModeloAjustado:
     n: int
     xtx_inv: np.ndarray
     r2: float
+    ssr: float             # suma de cuadrados de los residuos
 
     @property
     def k(self) -> int:
         return len(self.beta)
+
+    @property
+    def errores_estandar(self) -> np.ndarray:
+        return np.sqrt(np.diag(self.sigma2 * self.xtx_inv))
 
     @property
     def aic(self) -> float:
@@ -152,6 +178,7 @@ def ajustar(obs: Observaciones, tb: float) -> ModeloAjustado:
         n=n,
         xtx_inv=np.linalg.pinv(x.T @ x),
         r2=1 - ssr / sst if sst > 0 else float("nan"),
+        ssr=ssr,
     )
 
 
