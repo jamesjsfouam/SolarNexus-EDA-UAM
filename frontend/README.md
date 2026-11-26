@@ -20,7 +20,7 @@ uvicorn solarnexus.api.main:app --reload    # http://localhost:8000/docs
 
 Si la API no responde, el dashboard muestra **datos de ejemplo** con el mismo formato (`src/mock.js`)
 y lo indica en la cabecera. Si la API responde pero no tiene datos, ofrece cargar un pronóstico de
-demostración (`POST /forecasts` + `POST /dispatch/plan`).
+demostración (`POST /measurements/batch` + `POST /forecasts` + `POST /dispatch/plan`).
 
 ## Configuración
 
@@ -38,6 +38,6 @@ No se soporta `SOLARNEXUS_API_KEY`: el contrato pide no incrustar esa clave en e
 | `src/api.js` | Cliente de la API, batería y red mesh por defecto |
 | `src/mock.js` | Datos de ejemplo; replica las reglas de `despacho.py` |
 | `src/formato.js` | Horas en la zona del campus, números y nombres de los regímenes |
-| `src/components/Graficos.jsx` | Pronóstico, despacho por hora y batería (Recharts) |
+| `src/components/Graficos.jsx` | Pronóstico, despacho por hora, batería y mediciones (Recharts) |
 | `src/components/RedMesh.jsx` | Diagrama y tabla de la red mesh DC |
-| `src/App.jsx` | Página: tarjetas, gráficos y formulario de batería |
+| `src/App.jsx` | Página: tarjetas, gráficos, formulario de batería e íconos (`lucide-react`) |

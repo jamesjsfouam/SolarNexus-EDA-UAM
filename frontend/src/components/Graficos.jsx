@@ -132,7 +132,7 @@ export function GraficoBateria({ datos, capacidad, minimo, pico }) {
           label={{ value: `Capacidad ${kwh(capacidad)} kWh`, position: 'insideTopRight', fill: 'var(--text-2)', fontSize: 11 }} />
         {minimo > 0 && (
           <ReferenceLine y={minimo} stroke="var(--text-2)" strokeDasharray="2 4"
-            label={{ value: 'Reserva mínima', position: 'insideBottomRight', fill: 'var(--text-2)', fontSize: 11 }} />
+            label={{ value: `Reserva mínima ${kwh(minimo)} kWh`, position: 'insideTopLeft', fill: 'var(--text-2)', fontSize: 11 }} />
         )}
         <Tooltip cursor={{ stroke: 'var(--text-2)', strokeDasharray: '3 3' }} content={
           <CajaTooltip filas={[
@@ -142,6 +142,76 @@ export function GraficoBateria({ datos, capacidad, minimo, pico }) {
         } />
         <Area dataKey="soc" type="stepAfter" stroke="var(--s-bateria)" strokeWidth={2} fill="var(--s-bateria)" fillOpacity={0.15} isAnimationActive={false} />
       </AreaChart>
+    </ResponsiveContainer>
+  )
+}
+
+const ejeTiempo = {
+  dataKey: 'i', type: 'number', domain: ['dataMin', 'dataMax'], tick: EJE,
+  axisLine: { stroke: 'var(--grid)' }, tickLine: false,
+}
+
+function TooltipMedicion({ active, payload, filas }) {
+  if (!active || !payload?.length) return null
+  const d = payload[0].payload
+  return (
+    <div className="tooltip">
+      <div className="t-title">{d.etiqueta}</div>
+      {filas.map((f) => (
+        <div className="t-row" key={f.nombre}>
+          <span>{f.color && <i className="sw" style={{ background: f.color }} />}{f.nombre}</span>
+          <span>{f.valor(d)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Consumo y generación solar medidos (kWh por hora). */
+export function GraficoMedicionesEnergia({ datos }) {
+  const etiqueta = (i) => datos.find((d) => d.i === i)?.corta ?? ''
+  return (
+    <>
+      <Leyenda items={[
+        { nombre: 'Consumo medido', color: 'var(--s-demanda)', tipo: 'line' },
+        { nombre: 'Solar medida', color: 'var(--s-solar)', tipo: 'line' },
+      ]} />
+      <ResponsiveContainer width="100%" height={200}>
+        <LineChart data={datos} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+          {grid}
+          <XAxis {...ejeTiempo} ticks={datos.filter((d) => d.hora % 6 === 0).map((d) => d.i)} tickFormatter={etiqueta} />
+          <YAxis {...ejeY} />
+          <Tooltip cursor={{ stroke: 'var(--text-2)', strokeDasharray: '3 3' }} content={
+            <TooltipMedicion filas={[
+              { nombre: 'Consumo', color: 'var(--s-demanda)', valor: (d) => `${kwh(d.consumo)} kWh` },
+              { nombre: 'Solar', color: 'var(--s-solar)', valor: (d) => `${kwh(d.pv)} kWh` },
+            ]} />
+          } />
+          <Line dataKey="consumo" stroke="var(--s-demanda)" strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} connectNulls />
+          <Line dataKey="pv" stroke="var(--s-solar)" strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} connectNulls />
+        </LineChart>
+      </ResponsiveContainer>
+    </>
+  )
+}
+
+/** Temperatura medida (°C); va aparte del consumo para no mezclar escalas. */
+export function GraficoTemperatura({ datos }) {
+  const etiqueta = (i) => datos.find((d) => d.i === i)?.corta ?? ''
+  return (
+    <ResponsiveContainer width="100%" height={200}>
+      <LineChart data={datos} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+        {grid}
+        <XAxis {...ejeTiempo} ticks={datos.filter((d) => d.hora % 6 === 0).map((d) => d.i)} tickFormatter={etiqueta} />
+        <YAxis {...ejeY} tickFormatter={(v) => `${v}°`} domain={['dataMin - 2', 'dataMax + 2']} allowDecimals={false} />
+        <Tooltip cursor={{ stroke: 'var(--text-2)', strokeDasharray: '3 3' }} content={
+          <TooltipMedicion filas={[
+            { nombre: 'Temperatura', color: 'var(--accent)', valor: (d) => `${d.temp.toFixed(1)} °C` },
+            { nombre: 'Humedad', valor: (d) => `${Math.round(d.hum)} %` },
+          ]} />
+        } />
+        <Line dataKey="temp" stroke="var(--accent)" strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+      </LineChart>
     </ResponsiveContainer>
   )
 }

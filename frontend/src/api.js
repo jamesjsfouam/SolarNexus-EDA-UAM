@@ -62,22 +62,27 @@ const notFoundToNull = (err) => {
 export async function cargarDashboard() {
   try {
     const health = await request('/health')
-    const [campus, medicion, pronostico, despacho, mesh] = await Promise.all([
+    const [campus, mediciones, pronostico, despacho, mesh] = await Promise.all([
       request('/campus'),
-      request('/measurements/latest').catch(notFoundToNull),
+      request('/measurements?limit=48'), // llegan de la más reciente a la más antigua
       request('/forecasts/latest').catch(notFoundToNull),
       request('/dispatch/latest').catch(notFoundToNull),
       request('/mesh/solve', { method: 'POST', body: RED_MESH_DEFECTO }),
     ])
-    return { fuente: 'api', health, campus, medicion, pronostico, despacho, mesh }
+    mediciones.reverse()
+    return { fuente: 'api', health, campus, medicion: mediciones.at(-1) ?? null, mediciones, pronostico, despacho, mesh }
   } catch (err) {
     if (err instanceof ApiError) throw err // la API respondió con un error real
     return { fuente: 'ejemplo', ...mock.dashboard(BATERIA_DEFECTO) }
   }
 }
 
-/** Sube un pronóstico de ejemplo y calcula su despacho (para una API recién creada, sin datos). */
+/** Sube mediciones y un pronóstico de ejemplo y calcula su despacho (para una API recién creada, sin datos). */
 export async function sembrarDemo() {
+  const existentes = await request('/measurements?limit=1')
+  if (existentes.length === 0) {
+    await request('/measurements/batch', { method: 'POST', body: { records: mock.medicionesParaSubir() } })
+  }
   const pronostico = await request('/forecasts', { method: 'POST', body: mock.pronosticoParaSubir() })
   await request('/dispatch/plan', {
     method: 'POST',

@@ -2,13 +2,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { BATERIA_DEFECTO, RED_MESH_DEFECTO, cargarDashboard, recalcularDespacho, sembrarDemo } from './api.js'
 import * as mock from './mock.js'
 import { fechaLocal, horaLocal, kwh, num1, pct, REGIMENES } from './formato.js'
-import { GraficoBateria, GraficoDespacho, GraficoPronostico } from './components/Graficos.jsx'
+import {
+  Activity, BatteryCharging, Calculator, ChartColumn, ChartLine, DatabaseZap, Network, RefreshCw,
+  Send, Sun, Thermometer, TriangleAlert, UtilityPole, WifiOff, Zap,
+} from 'lucide-react'
+import {
+  GraficoBateria, GraficoDespacho, GraficoMedicionesEnergia, GraficoPronostico, GraficoTemperatura,
+} from './components/Graficos.jsx'
 import RedMesh from './components/RedMesh.jsx'
 
-function Tile({ label, valor, unidad, nota }) {
+function Tile({ icono: Icono, label, valor, unidad, nota }) {
   return (
     <div className="tile">
-      <div className="label">{label}</div>
+      <div className="label"><Icono size={16} aria-hidden="true" />{label}</div>
       <div className="valor">{valor}{unidad && <span className="unidad">{unidad}</span>}</div>
       {nota && <div className="nota">{nota}</div>}
     </div>
@@ -31,7 +37,9 @@ function FormBateria({ inicial, onCalcular, ocupado }) {
       {campo('min_soc_kwh', 'Reserva mínima (kWh)')}
       {campo('peak_start_hour', 'Pico desde (h)')}
       {campo('peak_end_hour', 'Pico hasta (h)')}
-      <button className="btn" disabled={ocupado}>{ocupado ? 'Calculando…' : 'Recalcular despacho'}</button>
+      <button className="btn" disabled={ocupado}>
+        <Calculator size={16} aria-hidden="true" />{ocupado ? 'Calculando…' : 'Recalcular despacho'}
+      </button>
     </form>
   )
 }
@@ -53,7 +61,7 @@ export default function App() {
 
   useEffect(() => { cargar() }, [cargar])
 
-  const { fuente, campus, medicion, pronostico, despacho, mesh, health } = estado
+  const { fuente, campus, medicion, mediciones, pronostico, despacho, mesh, health } = estado
   const tz = campus?.timezone ?? 'America/Managua'
   const pico = { inicio: bateria.peak_start_hour, fin: bateria.peak_end_hour }
 
@@ -77,6 +85,24 @@ export default function App() {
     pv: p.pv_generation_kwh,
     prob: p.probability_within_margin,
   })).sort((a, b) => a.hora - b.hora), [pronostico, tz])
+
+  const serieMediciones = useMemo(() => {
+    const dia = new Intl.DateTimeFormat('es-NI', { weekday: 'short', timeZone: tz })
+    return (mediciones ?? []).map((m, i) => {
+      const h = horaLocal(m.interval_start, tz)
+      const d = dia.format(new Date(m.interval_start))
+      return {
+        i,
+        hora: h,
+        corta: h === 0 ? d : `${h}h`,
+        etiqueta: `${d} ${h}:00`,
+        consumo: m.consumption_kwh,
+        pv: m.pv_generation_kwh,
+        temp: m.temperature_c,
+        hum: m.humidity_pct,
+      }
+    })
+  }, [mediciones, tz])
 
   const totales = useMemo(() => serieDespacho.reduce((t, d) => ({
     demanda: t.demanda + d.demanda, pv: t.pv + d.pv, red: t.red + d.red,
@@ -130,25 +156,36 @@ export default function App() {
               {fuente === 'api' ? 'Conectado a la API' : 'Datos de ejemplo'}
             </span>
           )}
-          <button className="btn" onClick={cargar} disabled={estado.cargando}>{estado.cargando ? 'Cargando…' : 'Actualizar'}</button>
+          <button className="btn" onClick={cargar} disabled={estado.cargando}>
+            <RefreshCw size={16} aria-hidden="true" className={estado.cargando ? 'girando' : ''} />
+            {estado.cargando ? 'Cargando…' : 'Actualizar'}
+          </button>
         </div>
       </header>
 
       {estado.error && (
-        <div className="aviso error"><strong>La API respondió con un error</strong>{estado.error}</div>
+        <div className="aviso error">
+          <TriangleAlert size={20} aria-hidden="true" />
+          <div><strong>La API respondió con un error</strong>{estado.error}</div>
+        </div>
       )}
       {fuente === 'ejemplo' && (
         <div className="aviso">
-          <strong>La API no está disponible: se muestran datos de ejemplo.</strong>
-          Levántala con <code>uvicorn solarnexus.api.main:app --reload</code> (rama <code>C.santana</code>) y pulsa Actualizar.
+          <WifiOff size={20} aria-hidden="true" />
+          <div>
+            <strong>La API no está disponible: se muestran datos de ejemplo.</strong>
+            Levántala desde la raíz del repo con <code>uvicorn solarnexus.api.main:app --reload</code> y pulsa Actualizar.
+          </div>
         </div>
       )}
 
       {sinDatos && (
         <div className="card vacio">
+          <DatabaseZap size={32} aria-hidden="true" />
           <p>La API está conectada pero todavía no tiene pronósticos ni planes de despacho.</p>
           <button className="btn btn-primary" onClick={sembrar} disabled={ocupado}>
-            {ocupado ? 'Cargando…' : 'Cargar pronóstico de demostración'}
+            <DatabaseZap size={16} aria-hidden="true" />
+            {ocupado ? 'Cargando…' : 'Cargar datos de demostración'}
           </button>
         </div>
       )}
@@ -156,13 +193,13 @@ export default function App() {
       {!sinDatos && despacho && (
         <>
           <section className="tiles">
-            <Tile label="Demanda prevista" valor={kwh(totales.demanda)} unidad="kWh" nota="Total del día" />
-            <Tile label="Generación solar" valor={kwh(totales.pv)} unidad="kWh" nota={`${pct(totales.pv / totales.demanda)} de la demanda`} />
-            <Tile label="Compra a la red" valor={kwh(totales.red)} unidad="kWh" nota={`${kwh(redEnPico)} kWh en la franja pico`} />
-            <Tile label="Aporte de la batería" valor={kwh(totales.descarga)} unidad="kWh" nota={`${kwh(bateriaEnPico)} kWh en la franja pico`} />
-            <Tile label="Exportación al SIN" valor={kwh(totales.exporta)} unidad="kWh" />
+            <Tile icono={Zap} label="Demanda prevista" valor={kwh(totales.demanda)} unidad="kWh" nota="Total del día" />
+            <Tile icono={Sun} label="Generación solar" valor={kwh(totales.pv)} unidad="kWh" nota={`${pct(totales.pv / totales.demanda)} de la demanda`} />
+            <Tile icono={UtilityPole} label="Compra a la red" valor={kwh(totales.red)} unidad="kWh" nota={`${kwh(redEnPico)} kWh en la franja pico`} />
+            <Tile icono={BatteryCharging} label="Aporte de la batería" valor={kwh(totales.descarga)} unidad="kWh" nota={`${kwh(bateriaEnPico)} kWh en la franja pico`} />
+            <Tile icono={Send} label="Exportación al SIN" valor={kwh(totales.exporta)} unidad="kWh" />
             {medicion && (
-              <Tile label="Última medición" valor={num1(medicion.temperature_c)} unidad="°C"
+              <Tile icono={Thermometer} label="Última medición" valor={num1(medicion.temperature_c)} unidad="°C"
                 nota={`Humedad ${kwh(medicion.humidity_pct)} % · ${kwh(medicion.consumption_kwh ?? 0)} kWh`} />
             )}
           </section>
@@ -171,7 +208,7 @@ export default function App() {
             <section className="card">
               <div className="card-head">
                 <div>
-                  <h2>Pronóstico de 24 horas</h2>
+                  <h2><ChartLine size={18} aria-hidden="true" />Pronóstico de 24 horas</h2>
                   <div className="sub">Modelo {pronostico.model_name} v{pronostico.model_version}</div>
                 </div>
               </div>
@@ -181,7 +218,7 @@ export default function App() {
             <section className="card">
               <div className="card-head">
                 <div>
-                  <h2>Batería</h2>
+                  <h2><BatteryCharging size={18} aria-hidden="true" />Batería</h2>
                   <div className="sub">Energía guardada al final de cada hora · termina en {kwh(despacho.final_soc_kwh)} kWh</div>
                 </div>
               </div>
@@ -192,7 +229,7 @@ export default function App() {
           <section className="card">
             <div className="card-head">
               <div>
-                <h2>Despacho por hora</h2>
+                <h2><ChartColumn size={18} aria-hidden="true" />Despacho por hora</h2>
                 <div className="sub">De dónde sale la energía que consume el campus y en qué modo opera el sistema</div>
               </div>
               <button className="toggle" onClick={() => setVerTabla(!verTabla)}>{verTabla ? 'Ocultar tabla' : 'Ver tabla'}</button>
@@ -223,11 +260,36 @@ export default function App() {
             <FormBateria inicial={bateria} onCalcular={recalcular} ocupado={ocupado} />
           </section>
 
+          <section className="card">
+            <div className="card-head">
+              <div>
+                <h2><Activity size={18} aria-hidden="true" />Mediciones recientes</h2>
+                <div className="sub">
+                  {serieMediciones.length
+                    ? `Últimas ${serieMediciones.length} horas registradas en el campus`
+                    : 'Todavía no hay mediciones registradas'}
+                </div>
+              </div>
+            </div>
+            {serieMediciones.length > 0 && (
+              <div className="grid-2 interno">
+                <div>
+                  <h3>Consumo y solar (kWh)</h3>
+                  <GraficoMedicionesEnergia datos={serieMediciones} />
+                </div>
+                <div>
+                  <h3>Temperatura (°C)</h3>
+                  <GraficoTemperatura datos={serieMediciones} />
+                </div>
+              </div>
+            )}
+          </section>
+
           {mesh && (
             <section className="card">
               <div className="card-head">
                 <div>
-                  <h2>Red mesh DC</h2>
+                  <h2><Network size={18} aria-hidden="true" />Red mesh DC</h2>
                   <div className="sub">Intercambio directo entre edificios (red de ejemplo) · costo del intervalo ${mesh.total_cost.toFixed(2)}</div>
                 </div>
               </div>

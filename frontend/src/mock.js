@@ -32,6 +32,31 @@ function serieDia() {
   })
 }
 
+// Telemetría de las últimas 48 horas cerradas, en orden cronológico (formato de POST /measurements/batch).
+export function medicionesParaSubir(horas = 48) {
+  const fin = new Date()
+  fin.setUTCMinutes(0, 0, 0)
+  return Array.from({ length: horas }, (_, i) => {
+    const t = new Date(fin.getTime() - (horas - i) * 3600_000)
+    const h = (t.getUTCHours() + 24 - 6) % 24 // hora de Managua
+    const ruido = Math.sin(i * 12.9898) * 0.04
+    const clases = h >= 7 && h < 20 ? 1 : 0.35
+    const calor = Math.max(0, Math.sin(((h - 9) / 12) * Math.PI))
+    const sol = h >= 6 && h <= 18 ? Math.sin(((h - 6) / 12) * Math.PI) : 0
+    const r1 = (v) => Math.round(v * 10) / 10
+    return {
+      interval_start: t.toISOString(),
+      temperature_c: r1(24 + 9 * calor + 2 * ruido * 10),
+      humidity_pct: r1(82 - 22 * calor),
+      activity_index: clases === 1 ? 0.85 : 0.1,
+      conditioned_area_m2: 7600,
+      consumption_kwh: r1((180 + 260 * clases + 260 * calor) * (1 + ruido)),
+      pv_generation_kwh: r1(900 * sol * (1 - Math.abs(ruido) * 3)),
+      source: 'frontend-demo',
+    }
+  })
+}
+
 export function pronosticoParaSubir() {
   return {
     model_name: 'ASHRAE-3P-log-linear',
@@ -103,20 +128,12 @@ export function dashboard(bateria) {
     points: serieDia().map((p, i) => ({ id: i + 1, ...p })),
   }
   const puntos = despachar(pronostico.points, bateria)
+  const mediciones = medicionesParaSubir().map((m, i) => ({ id: i + 1, ...m, created_at: ahora }))
   return {
     health: { status: 'ok', database: 'sin conexión', version: 'ejemplo' },
     campus: { id: 1, campus_name: 'Universidad Americana (UAM)', timezone: 'America/Managua', description: null },
-    medicion: {
-      id: 1,
-      interval_start: pronostico.points[14].interval_start,
-      temperature_c: 33.2,
-      humidity_pct: 68,
-      activity_index: 0.82,
-      conditioned_area_m2: 7600,
-      consumption_kwh: 612.4,
-      pv_generation_kwh: 540.1,
-      source: 'ejemplo',
-    },
+    medicion: mediciones.at(-1),
+    mediciones,
     pronostico,
     despacho: {
       id: 1,
