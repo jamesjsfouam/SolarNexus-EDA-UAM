@@ -35,10 +35,27 @@ def _cargar(args) -> tuple[datos.SerieCampus, str]:
     if args.csv and args.api:
         raise SystemExit("Usa --csv o --api, no ambos")
     if args.csv:
-        return datos.cargar_csv(Path(args.csv).read_text(encoding="utf-8")), "csv"
-    if args.api:
-        return leer_mediciones(args.api), "api"
-    return datos.generar_anio_demo(), "demo"
+        serie, origen = datos.cargar_csv(Path(args.csv).read_text(encoding="utf-8"), clima_opcional=True), "csv"
+    elif args.api:
+        serie, origen = leer_mediciones(args.api), "api"
+    else:
+        return datos.generar_anio_demo(), "demo"
+    return _completar_clima(serie, args), origen
+
+
+def _completar_clima(serie: datos.SerieCampus, args) -> datos.SerieCampus:
+    """Sin datos de Copérnico, la temperatura y la humedad del historial salen de las APIs."""
+    o = serie.observaciones
+    faltan = int((np.isnan(o.temperatura) | np.isnan(o.humedad)).sum())
+    if faltan == 0:
+        return serie
+    if args.clima_historial == "ninguno":
+        raise ValueError(f"Faltan temperatura o humedad en {faltan} horas (y --clima-historial ninguno)")
+    cadena = fuentes.CADENA_HISTORIAL if args.clima_historial == "auto" else (args.clima_historial,)
+    r = fuentes.completar_clima(serie, cadena, args.lat, args.lon)
+    detalle = ", ".join(f"{f}: {n} h" for f, n in r.horas_completadas.items())
+    print(f"Clima del historial completado con APIs en {r.total} de {len(serie)} horas ({detalle}).")
+    return r.serie
 
 
 def _desde(serie: datos.SerieCampus, desde: str | None) -> datos.SerieCampus:
@@ -226,6 +243,13 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--rendimiento", type=float, default=0.80, help="factor de rendimiento de la planta (PR)")
         p.add_argument("--lat", type=float, default=fuentes.LAT_UAM)
         p.add_argument("--lon", type=float, default=fuentes.LON_UAM)
+        historial_clima(p)
+
+    def historial_clima(p):
+        p.add_argument("--clima-historial", default="auto",
+                       choices=("auto", "ninguno", "open-meteo-archivo", "open-meteo-pasados", "nasa-power"),
+                       help="cómo completar temperatura y humedad que falten en el historial "
+                            "(auto: ERA5, luego pronósticos archivados, luego NASA POWER)")
 
     v = sub.add_parser("validar", help="ASHRAE 14, diagnósticos y calibración")
     comunes(v)
@@ -238,6 +262,9 @@ def main(argv: list[str] | None = None) -> int:
     x.add_argument("--csv", help="CSV de entrada")
     x.add_argument("--api", help="URL base del backend")
     x.add_argument("--desde", help="descartar datos anteriores a esta fecha")
+    x.add_argument("--lat", type=float, default=fuentes.LAT_UAM)
+    x.add_argument("--lon", type=float, default=fuentes.LON_UAM)
+    historial_clima(x)
     x.add_argument("--salida", default="analisis/datos/solarnexus_datos.csv", help="archivo CSV de salida")
     x.set_defaults(func=cmd_exportar)
 

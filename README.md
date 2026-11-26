@@ -276,6 +276,7 @@ python -m solarnexus.estadistica pronosticar --api http://localhost:8000 --envia
 | Pronóstico | Regresores por escenario climatológico (misma hora, últimos 28 días del mismo tipo), demanda media con corrección de Duan, salida en hora de Managua (UTC−6). |
 | Integración | Cliente HTTP sin dependencias: pagina `GET /api/v1/measurements` (humedad % → fracción, actividad 0 → 0,01) y envía el pronóstico. |
 | Clima | Sin datos de Copérnico: `--clima open-meteo` (pronóstico; el backtest usa sus pronósticos pasados), `open-meteo-archivo` (ERA5) o `nasa-power`. Con `--kwp` la PV se estima con la radiación de la fuente. `python -m solarnexus.estadistica clima` descarga la serie a CSV. |
+| Historial sin clima | El CSV o la API de la UAM **no necesitan** `temperatura` ni `humedad`: las horas vacías se completan con ERA5 de Open-Meteo, después con sus pronósticos archivados (días recientes) y por último con NASA POWER (`--clima-historial`). Los valores medidos de Copérnico, cuando existan, nunca se sustituyen. |
 
 > [!IMPORTANT]
 > Con los datos de demostración, la probabilidad sin calibrar promete ~95–99 % de aciertos dentro del margen, pero en el backtest solo se cumple el 62–70 %: al pronosticar con regresores esperados el modelo es demasiado confiado ($k \approx 2{,}2$–$2{,}4$). Sin calibrar, la compuerta de exportación (≥ 95 %) autorizaría decisiones que no son seguras.

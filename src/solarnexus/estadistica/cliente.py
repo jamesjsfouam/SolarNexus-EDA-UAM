@@ -6,6 +6,8 @@
 Conversión de unidades (docs/API_CONTRACT.md):
 - humidity_pct viene en %, el modelo usa fracción.
 - activity_index puede ser 0, pero el modelo usa ln ACT: se acota a ACTIVIDAD_MINIMA.
+- temperature_c y humidity_pct pueden faltar (sin estación Copérnico): quedan en NaN y la
+  línea de comandos las completa con Open-Meteo o NASA POWER.
 """
 
 from __future__ import annotations
@@ -75,8 +77,9 @@ def mediciones_a_serie(registros: list[dict]) -> SerieCampus:
     return SerieCampus(
         fechas=fechas[orden],
         observaciones=Observaciones(
-            temperatura=col("temperature_c"),
-            humedad=col("humidity_pct") / 100,
+            # Sin Copérnico pueden venir vacías: quedan en NaN y se completan con fuentes.completar_clima.
+            temperatura=col("temperature_c", float("nan")),
+            humedad=col("humidity_pct", float("nan")) / 100,
             actividad=np.maximum(col("activity_index"), ACTIVIDAD_MINIMA),
             area=col("conditioned_area_m2"),
             consumo=col("consumption_kwh"),

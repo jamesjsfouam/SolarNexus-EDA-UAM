@@ -168,6 +168,73 @@ def obtener(fuente: str, inicio: str, fin: str, lat: float = LAT_UAM, lon: float
     raise ValueError(f"Fuente desconocida: {fuente}. Opciones: {', '.join(FUENTES)}")
 
 
+CADENA_HISTORIAL = ("open-meteo-archivo", "open-meteo-pasados", "nasa-power")
+
+
+@dataclass(frozen=True)
+class Completado:
+    serie: object                 # SerieCampus con temperatura y humedad completas
+    horas_completadas: dict[str, int]  # horas rellenadas por cada fuente
+
+    @property
+    def total(self) -> int:
+        return sum(self.horas_completadas.values())
+
+
+def completar_clima(serie, cadena: tuple[str, ...] = CADENA_HISTORIAL,
+                    lat: float = LAT_UAM, lon: float = LON_UAM) -> Completado:
+    """Rellena la temperatura y la humedad que falten en el historial con APIs de clima.
+
+    Se prueban las fuentes en orden: ERA5 (Open-Meteo) es lo más parecido a una
+    observación, pero llega con unos días de retraso; los pronósticos archivados cubren
+    hasta hoy, y NASA POWER queda de respaldo. Los valores medidos (Copérnico) nunca se
+    sustituyen: solo se rellenan las horas vacías.
+    """
+    from ..datos import SerieCampus
+    from ..oraculo import Observaciones
+
+    o = serie.observaciones
+    t = np.array(o.temperatura, dtype=float)
+    h = np.array(o.humedad, dtype=float)
+    usadas: dict[str, int] = {}
+    for fuente in cadena:
+        faltan = np.isnan(t) | np.isnan(h)
+        if not faltan.any():
+            break
+        if fuente == "open-meteo":
+            raise ValueError("El pronóstico de Open-Meteo no sirve para el historial; usa open-meteo-archivo")
+        dias = serie.fechas[faltan].astype("datetime64[D]")
+        try:
+            c = obtener(fuente, str(dias.min()), str(dias.max()), lat, lon)
+        except (ValueError, RuntimeError):
+            continue  # la fuente no respondió o no cubre el rango: se prueba la siguiente
+        if len(c) == 0:
+            continue
+        orden = np.argsort(c.fechas)
+        fechas_c = c.fechas[orden]
+        idx = np.searchsorted(fechas_c, serie.fechas)
+        idx = np.clip(idx, 0, len(fechas_c) - 1)
+        coincide = fechas_c[idx] == serie.fechas
+        t_fuente = np.where(coincide, c.temperatura[orden][idx], np.nan)
+        h_fuente = np.where(coincide, c.humedad[orden][idx], np.nan)
+        antes = int((np.isnan(t) | np.isnan(h)).sum())
+        t = np.where(np.isnan(t), t_fuente, t)
+        h = np.where(np.isnan(h), h_fuente, h)
+        rellenadas = antes - int((np.isnan(t) | np.isnan(h)).sum())
+        if rellenadas:
+            usadas[fuente] = rellenadas
+
+    pendientes = int((np.isnan(t) | np.isnan(h)).sum())
+    if pendientes:
+        raise ValueError(f"No se pudo completar el clima de {pendientes} horas con {', '.join(cadena)}")
+    nueva = SerieCampus(
+        fechas=serie.fechas,
+        observaciones=Observaciones(t, h, o.actividad, o.area, o.consumo),
+        pv=serie.pv,
+    )
+    return Completado(nueva, usadas)
+
+
 def pv_desde_radiacion(radiacion_w_m2: np.ndarray, kwp: float, rendimiento: float = 0.80) -> np.ndarray:
     """Producción horaria estimada (kWh) = kWp × GHI/1000 × PR.
 

@@ -21,6 +21,7 @@ def _horas_locales(inicio: str, fin: str) -> list[str]:
 
 class _Simulador(BaseHTTPRequestHandler):
     peticiones: list = []
+    ULTIMO_ERA5 = "2026-12-31"
 
     def _json(self, cuerpo, codigo=200):
         b = json.dumps(cuerpo).encode()
@@ -38,6 +39,10 @@ class _Simulador(BaseHTTPRequestHandler):
             if "forecast_days" in q:
                 fin = np.datetime64("2026-11-26", "D") + np.timedelta64(int(q["forecast_days"]) - 1, "D")
                 horas = _horas_locales("2026-11-26", str(fin))
+            elif u.path == "/v1/archive":
+                # ERA5 llega con retraso: el simulador solo tiene hasta ULTIMO_ERA5.
+                fin = min(np.datetime64(q["end_date"]), np.datetime64(type(self).ULTIMO_ERA5))
+                horas = _horas_locales(q["start_date"], str(fin)) if fin >= np.datetime64(q["start_date"]) else []
             else:
                 horas = _horas_locales(q["start_date"], q["end_date"])
             n = len(horas)
@@ -72,6 +77,7 @@ class _Simulador(BaseHTTPRequestHandler):
 @pytest.fixture
 def servidor(monkeypatch):
     _Simulador.peticiones = []
+    _Simulador.ULTIMO_ERA5 = "2026-12-31"
     srv = HTTPServer(("127.0.0.1", 0), _Simulador)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{srv.server_address[1]}"
@@ -172,3 +178,76 @@ def test_cli_clima_y_pronostico(servidor, tmp_path, capsys):
     # El pronóstico de Open-Meteo no sirve para validar días pasados.
     with pytest.raises(SystemExit):
         main(["validar", "--clima", "open-meteo"])
+
+
+# ---------- historial sin clima (sin estación Copérnico) ----------
+
+def _csv_sin_clima(dias=3, inicio="2026-10-01", con_temperatura_en=()):
+    s = datos.generar(dias, semilla=4, fecha_inicial=inicio)
+    filas = ["fecha,temperatura,humedad,actividad,area,consumo,pv"]
+    for i, linea in enumerate(datos.a_csv(s).splitlines()[1:]):
+        f, t, h, a, ar, c, pv = linea.split(",")
+        medido = i in con_temperatura_en
+        filas.append(",".join([f, t if medido else "", h if medido else "", a, ar, c, pv]))
+    return "\n".join(filas) + "\n"
+
+
+def test_cargar_csv_clima_opcional():
+    texto = _csv_sin_clima()
+    with pytest.raises(ValueError):
+        datos.cargar_csv(texto)  # la web de main sigue exigiendo el clima
+    s = datos.cargar_csv(texto, clima_opcional=True)
+    assert np.isnan(s.observaciones.temperatura).all() and len(s) == 72
+    sin_columnas = "fecha,actividad,area,consumo\n" + "\n".join(
+        f"2026-10-01T{h:02d}:00,0.5,5000,100" for h in range(24))
+    s2 = datos.cargar_csv(sin_columnas, clima_opcional=True)
+    assert np.isnan(s2.observaciones.humedad).all()
+    with pytest.raises(ValueError, match="consumo"):
+        datos.cargar_csv("fecha,actividad,area\n2026-10-01T00:00,0.5,5000\n" * 1, clima_opcional=True)
+
+
+def test_completar_clima_respeta_lo_medido(servidor):
+    s = datos.cargar_csv(_csv_sin_clima(con_temperatura_en=(5,)), clima_opcional=True)
+    medido = s.observaciones.temperatura[5]
+    r = fuentes.completar_clima(s)
+    t = r.serie.observaciones.temperatura
+    assert not np.isnan(t).any() and t[5] == medido  # Copérnico no se sustituye
+    # El simulador de Open-Meteo deja vacía la hora 3 de cada respuesta: ERA5 rellena 70 y
+    # NASA POWER, al final de la cadena, la hora que ninguna de las dos fuentes de Open-Meteo trae.
+    assert r.horas_completadas == {"open-meteo-archivo": 70, "nasa-power": 1} and r.total == 71
+    assert r.serie.observaciones.consumo is s.observaciones.consumo
+
+
+def test_completar_clima_cadena_de_respaldo(servidor):
+    _Simulador.ULTIMO_ERA5 = "2026-10-01"  # ERA5 no tiene los dos últimos días
+    s = datos.cargar_csv(_csv_sin_clima(), clima_opcional=True)
+    r = fuentes.completar_clima(s)
+    # ERA5 cubre el 1 de octubre salvo la hora 3 (vacía en el simulador); los pronósticos archivados
+    # cubren el 2 y el 3, pero su respuesta empieza el día 1 y también trae vacía esa hora 3;
+    # NASA POWER la completa al final de la cadena.
+    assert r.horas_completadas == {"open-meteo-archivo": 23, "open-meteo-pasados": 48, "nasa-power": 1}
+    assert not np.isnan(r.serie.observaciones.temperatura).any()
+    with pytest.raises(ValueError, match="No se pudo completar"):
+        fuentes.completar_clima(s, cadena=("open-meteo-archivo",))
+    with pytest.raises(ValueError, match="historial"):
+        fuentes.completar_clima(s, cadena=("open-meteo",))
+
+
+def test_mediciones_api_sin_clima():
+    from solarnexus.estadistica import cliente
+    registros = [{"interval_start": f"2026-10-01T{h:02d}:00:00Z", "temperature_c": None, "humidity_pct": None,
+                  "activity_index": 0.5, "conditioned_area_m2": 5000.0, "consumption_kwh": 100.0,
+                  "pv_generation_kwh": 0.0} for h in range(24)]
+    s = cliente.mediciones_a_serie(registros)
+    assert np.isnan(s.observaciones.temperatura).all() and np.isnan(s.observaciones.humedad).all()
+
+
+def test_cli_completa_el_clima(servidor, tmp_path, capsys):
+    entrada = tmp_path / "uam.csv"
+    entrada.write_text(_csv_sin_clima(dias=20, inicio="2026-09-10"), encoding="utf-8")
+    salida = tmp_path / "completo.csv"
+    assert main(["exportar", "--csv", str(entrada), "--salida", str(salida)]) == 0
+    assert "completado con APIs en 480 de 480 horas" in capsys.readouterr().out
+    assert not np.isnan(datos.cargar_csv(salida.read_text(encoding="utf-8")).observaciones.temperatura).any()
+    assert main(["validar", "--csv", str(entrada), "--dias", "3"]) == 0
+    assert main(["exportar", "--csv", str(entrada), "--clima-historial", "ninguno"]) == 1

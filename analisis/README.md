@@ -27,7 +27,9 @@ Desde la raíz del repositorio, exporta los datos que leerá R (por defecto, el 
 python -m solarnexus.estadistica exportar --salida analisis/datos/solarnexus_datos.csv
 ```
 
-Con datos reales, añade `--csv archivo.csv` o `--api http://localhost:8000`.
+Con datos reales, añade `--csv archivo.csv` o `--api http://localhost:8000`. Ese CSV solo necesita
+`fecha, actividad, area, consumo` (y `pv` si hay): mientras no haya datos de Copérnico, la temperatura y
+la humedad se completan solas con Open-Meteo o NASA POWER, y el CSV exportado para R ya las trae.
 
 ### Clima sin la estación Copérnico
 

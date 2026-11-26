@@ -11,6 +11,8 @@ Formato CSV (una fila por hora, cabecera obligatoria):
 - fecha: ISO 8601 (hora local). temperatura en °C. humedad en fracción (o en %, se
   convierte si algún valor supera 1). actividad en (0, 1]. area en m². consumo y pv en kWh.
 - pv es opcional (se toma 0 si falta).
+- temperatura y humedad pueden faltar si se cargan con clima_opcional=True: el componente
+  estadístico las completa con Open-Meteo o NASA POWER mientras no haya datos de Copérnico.
 """
 
 from __future__ import annotations
@@ -141,21 +143,39 @@ def generar_anio_demo(semilla: int = 3) -> SerieCampus:
     )
 
 
-def cargar_csv(texto: str) -> SerieCampus:
+COLUMNAS_CLIMA = ("temperatura", "humedad")
+
+
+def cargar_csv(texto: str, clima_opcional: bool = False) -> SerieCampus:
+    """Lee el CSV horario del campus.
+
+    Con `clima_opcional=True` las columnas `temperatura` y `humedad` pueden faltar o venir
+    vacías: quedan como NaN y deben completarse después con una API de clima
+    (solarnexus.estadistica.fuentes.completar_clima). Es el caso normal mientras no haya
+    datos de la estación Copérnico.
+    """
     lector = csv.DictReader(io.StringIO(texto.lstrip("﻿")))
     if lector.fieldnames is None:
         raise ValueError("El CSV está vacío")
     cabecera = {c.strip().lower() for c in lector.fieldnames}
-    faltan = [c for c in COLUMNAS if c != "pv" and c not in cabecera]
+    opcionales = {"pv"} | (set(COLUMNAS_CLIMA) if clima_opcional else set())
+    faltan = [c for c in COLUMNAS if c not in opcionales and c not in cabecera]
     if faltan:
         raise ValueError(f"Faltan columnas en el CSV: {', '.join(faltan)}")
 
     filas = [{k.strip().lower(): (v or "").strip() for k, v in fila.items() if k} for fila in lector]
     if len(filas) < 24:
         raise ValueError("El CSV necesita al menos 24 filas horarias")
+
+    def numero(f: dict, c: str) -> float:
+        valor = f.get(c, "")
+        if valor == "" and clima_opcional and c in COLUMNAS_CLIMA:
+            return float("nan")
+        return float(valor)
+
     try:
         fechas = np.array([np.datetime64(f["fecha"].replace(" ", "T"), "h") for f in filas])
-        col = {c: np.array([float(f[c]) for f in filas]) for c in COLUMNAS[1:6]}
+        col = {c: np.array([numero(f, c) for f in filas]) for c in COLUMNAS[1:6]}
         pv = np.array([float(f.get("pv") or 0) for f in filas])
     except (KeyError, ValueError) as e:
         raise ValueError(f"Valor no válido en el CSV: {e}") from e
@@ -163,7 +183,9 @@ def cargar_csv(texto: str) -> SerieCampus:
     orden = np.argsort(fechas, kind="stable")
     if np.any(np.diff(fechas[orden]) == np.timedelta64(0, "h")):
         raise ValueError("Hay fechas repetidas en el CSV")
-    if np.nanmax(col["humedad"]) > 1:
+    if not clima_opcional and np.isnan(col["temperatura"]).any():
+        raise ValueError("Hay horas sin temperatura en el CSV")
+    if not np.isnan(col["humedad"]).all() and np.nanmax(col["humedad"]) > 1:
         col["humedad"] = col["humedad"] / 100
     return SerieCampus(
         fechas=fechas[orden],
