@@ -74,7 +74,7 @@ const notFoundToNull = (err) => {
 export async function cargarDashboard() {
   try {
     const health = await request('/health')
-    const [campus, medicion, pronostico, despacho, meshResult] = await Promise.all([
+    const [campus, medicion, pronostico, despacho, meshResult, weatherResult] = await Promise.all([
       request('/campus'),
       request('/measurements/latest').catch(notFoundToNull),
       request('/forecasts/latest').catch(notFoundToNull),
@@ -82,8 +82,10 @@ export async function cargarDashboard() {
       request('/mesh/solve', { method: 'POST', body: RED_MESH_DEFECTO })
         .then((mesh) => ({ mesh, meshError: null }))
         .catch((err) => ({ mesh: null, meshError: err.message })),
+      request('/weather').then((weather) => ({ weather, weatherError: null }))
+        .catch((err) => ({ weather: null, weatherError: err.message })),
     ])
-    return { fuente: 'api', health, campus, medicion, pronostico, despacho, ...meshResult }
+    return { fuente: 'api', health, campus, medicion, pronostico, despacho, ...meshResult, ...weatherResult }
   } catch (err) {
     if (err instanceof ApiError) throw err // la API respondió con un error real
     return { fuente: 'ejemplo', ...mock.dashboard(BATERIA_DEFECTO) }

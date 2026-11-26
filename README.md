@@ -338,3 +338,14 @@ npm run dev
 Vite proxies `/api/v1` to the backend during development. See
 [`frontend/README.md`](frontend/README.md) for proxy, API-key and production
 reverse-proxy configuration.
+
+
+### Clima y radiación solar
+
+El backend consulta Open-Meteo mediante `GET /api/v1/weather` y el dashboard
+muestra condiciones actuales, pronóstico horario y radiación solar estimada.
+La respuesta se almacena en caché durante 10 minutos. La ubicación predeterminada
+es el campus UAM en Managua; puede configurarse con las variables
+`SOLARNEXUS_WEATHER_LATITUDE`, `SOLARNEXUS_WEATHER_LONGITUDE` y
+`SOLARNEXUS_WEATHER_TIMEZONE`. Los datos meteorológicos son contexto y todavía
+no alimentan automáticamente el modelo estadístico ni el despacho.

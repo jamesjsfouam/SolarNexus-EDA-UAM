@@ -125,3 +125,24 @@ th { color: var(--text-2); font-weight: 500; }
 .vacio { text-align: center; padding: 36px 16px; color: var(--text-2); }
 .vacio p { margin: 0 0 14px; }
 .pie { color: var(--text-2); font-size: 0.8rem; text-align: center; }
+
+
+.weather-card { overflow: hidden; }
+.weather-main { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.weather-kicker { display: block; color: var(--text-2); font-size: .72rem; font-weight: 700; letter-spacing: .08em; }
+.weather-temp { font-size: 3.4rem; line-height: 1.1; font-weight: 650; letter-spacing: -.06em; margin: 5px 0; }
+.weather-temp span { font-size: 1.2rem; color: var(--text-2); margin-left: 4px; }
+.weather-description { color: var(--text-2); }
+.weather-stats { display: grid; grid-template-columns: repeat(2, minmax(120px, 1fr)); gap: 12px 24px; align-content: center; }
+.weather-stats span { color: var(--text-2); font-size: .85rem; }
+.weather-stats strong { color: var(--text); margin-left: 5px; }
+.weather-solar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 18px; padding: 12px 14px; border-radius: 10px; background: var(--plane); }
+.weather-solar strong { display: block; font-size: 1.35rem; margin: 3px 0; }
+.weather-solar small { display: block; color: var(--text-2); }
+.weather-provider { color: var(--text-2); font-size: .75rem; }
+.weather-hours { display: grid; grid-template-columns: repeat(12, minmax(44px, 1fr)); gap: 5px; overflow-x: auto; margin-top: 16px; }
+.weather-hour { min-width: 44px; min-height: 94px; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 2px 0; border-radius: 7px; background: var(--plane); }
+.weather-hour span, .weather-hour small { font-size: .68rem; color: var(--text-2); white-space: nowrap; }
+.weather-hour strong { font-size: .9rem; }
+.weather-hour i { display: block; width: 9px; max-height: 25px; min-height: 3px; border-radius: 8px 8px 2px 2px; background: var(--s-solar); margin-top: auto; }
+.weather-note { margin-top: 8px; }

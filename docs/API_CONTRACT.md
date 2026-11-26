@@ -35,6 +35,7 @@ All business endpoints are prefixed with /api/v1.
 | Method | Path | Purpose |
 |---|---|---|
 | GET | /health | API and database health |
+| GET | /weather | Current weather and next 24 hourly conditions/solar radiation (Open-Meteo) |
 | GET | /dashboard/summary | Aggregated KPIs for the frontend dashboard |
 | GET | /campus | Get campus configuration |
 | PUT | /campus | Update campus configuration |
@@ -208,3 +209,24 @@ For local development, Vite proxies `/api` to the backend. An optional
 adds it server-side as `X-API-Key`. Do not use a `VITE_*` variable for this
 secret. Production deployments must use a trusted same-origin reverse proxy or
 gateway and must not expose a shared service key in browser JavaScript.
+
+
+## Weather integration (Open-Meteo)
+
+`GET /api/v1/weather` returns current conditions and the next 24 hourly points
+for the UAM campus. Defaults are Managua coordinates (12.1328, -86.2504) and
+`America/Managua`. Coordinates and timezone can be overridden with query
+parameters:
+
+```text
+GET /api/v1/weather?latitude=12.1328&longitude=-86.2504&timezone=America%2FManagua
+```
+
+The response includes temperature, apparent temperature, humidity, precipitation,
+weather code, cloud cover, wind, and hourly shortwave/direct/diffuse solar
+radiation. This is meteorological context; it is not yet an input to the
+statistical PV forecast or dispatch optimizer. Results are cached in memory for
+10 minutes by coordinate/timezone. Configure defaults with
+`SOLARNEXUS_WEATHER_LATITUDE`, `SOLARNEXUS_WEATHER_LONGITUDE`,
+`SOLARNEXUS_WEATHER_TIMEZONE`, and `SOLARNEXUS_WEATHER_CACHE_TTL`.
+The upstream hosted API is Open-Meteo; see https://open-meteo.com/en/docs.

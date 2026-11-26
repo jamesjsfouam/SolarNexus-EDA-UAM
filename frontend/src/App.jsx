@@ -20,6 +20,60 @@ function bateriaDesdeDespacho(despacho) {
   }
 }
 
+function descripcionClima(code) {
+  if (code === 0) return 'Despejado'
+  if ([1, 2, 3].includes(code)) return 'Parcialmente nublado'
+  if ([45, 48].includes(code)) return 'Neblina'
+  if ([51, 53, 55, 56, 57].includes(code)) return 'Llovizna'
+  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return 'Lluvia'
+  if ([95, 96, 99].includes(code)) return 'Tormenta'
+  return 'Condiciones variables'
+}
+
+function horaClima(value, tz) {
+  return new Intl.DateTimeFormat('es-NI', { hour: '2-digit', timeZone: tz }).format(new Date(value))
+}
+
+function TarjetaClima({ weather, error, timezone }) {
+  if (!weather) return (
+    <section className="card weather-card">
+      <div className="card-head"><div><h2>Clima y recurso solar</h2><div className="sub">{error ? 'Servicio meteorológico no disponible' : 'Cargando condiciones…'}</div></div></div>
+    </section>
+  )
+  const now = weather.current
+  const hours = weather.hourly.slice(0, 12)
+  const peak = [...weather.hourly].sort((a, b) => (b.shortwave_radiation_w_m2 ?? 0) - (a.shortwave_radiation_w_m2 ?? 0))[0]
+  return (
+    <section className="card weather-card">
+      <div className="weather-main">
+        <div><div className="weather-kicker">CONDICIONES ACTUALES · CAMPUS UAM</div>
+          <div className="weather-temp">{Math.round(now.temperature_c)}°<span>C</span></div>
+          <div className="weather-description">{descripcionClima(now.weather_code)} · Sensación {Math.round(now.feels_like_c)}°C</div></div>
+        <div className="weather-stats">
+          <span>Humedad <strong>{now.humidity_pct}%</strong></span>
+          <span>Viento <strong>{Math.round(now.wind_speed_kmh)} km/h</strong></span>
+          <span>Nubosidad <strong>{now.cloud_cover_pct}%</strong></span>
+          <span>Lluvia <strong>{now.precipitation_mm} mm</strong></span>
+        </div>
+      </div>
+      <div className="weather-solar">
+        <div><span className="weather-kicker">RECURSO SOLAR ESTIMADO</span>
+          <strong>{Math.round(peak?.shortwave_radiation_w_m2 ?? 0)} W/m²</strong>
+          <small>Máximo de radiación horaria · {peak ? horaClima(peak.time, timezone) : '--'}</small></div>
+        <span className="weather-provider">Open-Meteo · {weather.cached ? 'caché' : 'actualizado'}</span>
+      </div>
+      <div className="weather-hours">
+        {hours.map((hour) => <div className="weather-hour" key={hour.time}>
+          <span>{horaClima(hour.time, timezone)}</span><strong>{Math.round(hour.temperature_c)}°</strong>
+          <small>{Math.round(hour.shortwave_radiation_w_m2 ?? 0)} W/m²</small>
+          <i style={{ height: `${Math.max(3, Math.min(100, (hour.shortwave_radiation_w_m2 ?? 0) / 9))}%` }} />
+        </div>)}
+      </div>
+      {error && <div className="sub weather-note">No se pudo actualizar el clima; el resto del panel sigue disponible.</div>}
+    </section>
+  )
+}
+
 function Tile({ label, valor, unidad, nota }) {
   return (
     <div className="tile">
@@ -72,7 +126,7 @@ export default function App() {
 
   useEffect(() => { cargar() }, [cargar])
 
-  const { fuente, campus, medicion, pronostico, despacho, mesh, meshError, health } = estado
+  const { fuente, campus, medicion, pronostico, despacho, mesh, meshError, weather, weatherError, health } = estado
   const tz = campus?.timezone ?? 'America/Managua'
   const pico = { inicio: bateria.peak_start_hour, fin: bateria.peak_end_hour }
 
@@ -181,6 +235,8 @@ export default function App() {
           {' '}{meshError}
         </div>
       )}
+      {fuente === 'api' && <TarjetaClima weather={weather} error={weatherError} timezone={tz} />}
+
       {fuente === 'ejemplo' && (
         <div className="aviso">
           <strong>La API no está disponible: se muestran datos de ejemplo.</strong>

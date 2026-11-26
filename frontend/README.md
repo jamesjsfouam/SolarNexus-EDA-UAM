@@ -63,3 +63,10 @@ npm run preview
 | `src/components/RedMesh.jsx` | Diagrama y tabla de red Mesh DC |
 | `src/App.jsx` | Panel principal y formulario de batería |
 | `vite.config.js` | Proxy local para API y encabezado de servicio opcional |
+
+
+## Clima
+
+El dashboard consulta `GET /api/v1/weather` a través del proxy de Vite. No se
+necesita una clave de Open-Meteo. Si el servicio meteorológico no responde,
+el resto del dashboard sigue disponible y muestra un aviso no bloqueante.

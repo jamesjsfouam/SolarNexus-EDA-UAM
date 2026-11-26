@@ -175,3 +175,40 @@ def test_alembic_initial_migration_creates_database_schema(tmp_path):
     dispatch_columns = {column["name"] for column in inspect(engine).get_columns("dispatch_runs")}
     assert {"peak_start_hour", "peak_end_hour", "alpha", "delta"}.issubset(dispatch_columns)
     engine.dispose()
+
+
+def test_weather_endpoint_returns_current_and_hourly_data(client, monkeypatch):
+    from solarnexus.api.routers import weather as weather_router
+    monkeypatch.setattr(weather_router, "_cache", {})
+
+    async def fake_fetch(params):
+        assert params["latitude"] == pytest.approx(12.1328)
+        assert "shortwave_radiation" in params["hourly"]
+        return {
+            "latitude": 12.1328, "longitude": -86.2504,
+            "timezone": "America/Managua", "elevation": 56,
+            "current": {"time": "2026-11-26T12:00", "temperature_2m": 32,
+                "apparent_temperature": 36, "relative_humidity_2m": 65,
+                "precipitation": 0, "weather_code": 2, "cloud_cover": 30,
+                "wind_speed_10m": 12, "wind_direction_10m": 90, "is_day": 1},
+            "hourly": {"time": [f"2026-11-26T{i:02d}:00" for i in range(24)],
+                "temperature_2m": [30] * 24, "relative_humidity_2m": [60] * 24,
+                "precipitation_probability": [10] * 24, "precipitation": [0] * 24,
+                "weather_code": [1] * 24, "cloud_cover": [20] * 24,
+                "wind_speed_10m": [10] * 24, "shortwave_radiation": [500] * 24,
+                "direct_radiation": [350] * 24, "diffuse_radiation": [150] * 24},
+        }
+
+    monkeypatch.setattr(weather_router, "fetch_open_meteo", fake_fetch)
+    response = client.get("/api/v1/weather")
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["provider"] == "Open-Meteo"
+    assert result["current"]["temperature_c"] == 32
+    assert len(result["hourly"]) == 24
+    assert result["hourly"][0]["shortwave_radiation_w_m2"] == 500
+
+
+def test_weather_endpoint_validates_coordinates(client):
+    response = client.get("/api/v1/weather?latitude=120&longitude=-86")
+    assert response.status_code == 422

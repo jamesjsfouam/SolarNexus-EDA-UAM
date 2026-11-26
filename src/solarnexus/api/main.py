@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from .. import __version__
 from .database import init_db
-from .routers import dashboard, dispatch, forecasts, measurements, mesh, system
+from .routers import dashboard, dispatch, forecasts, measurements, mesh, system, weather
 
 API_KEY = os.getenv("SOLARNEXUS_API_KEY", "").strip()
 ENVIRONMENT = os.getenv("SOLARNEXUS_ENV", "development").lower()
@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="SolarNexus API",
-    description="Backend REST de SolarNexus: telemetría, pronósticos estadísticos y planificación de despacho.",
+    description="Backend REST de SolarNexus: telemetría, pronósticos estadísticos, clima y planificación de despacho.",
     version=__version__, docs_url="/docs", redoc_url="/redoc", lifespan=lifespan,
 )
 
@@ -38,9 +38,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-API-Key"],
 )
 
-
 def _sanitize_error_value(value):
-    """Make Pydantic error payloads JSON-safe, including NaN/Infinity inputs."""
     if isinstance(value, float) and not math.isfinite(value):
         return repr(value)
     if isinstance(value, dict):
@@ -51,17 +49,12 @@ def _sanitize_error_value(value):
         return str(value)
     return value
 
-
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError):
-    return JSONResponse(
-        status_code=422,
-        content={"detail": _sanitize_error_value(exc.errors())},
-    )
+    return JSONResponse(status_code=422, content={"detail": _sanitize_error_value(exc.errors())})
 
 @app.middleware("http")
 async def api_key_guard(request: Request, call_next):
-    """Optional shared-secret protection for service-to-service access."""
     protected = request.url.path.startswith("/api/v1/") and request.url.path != "/api/v1/health"
     if protected and API_KEY:
         supplied = request.headers.get("X-API-Key", "")
@@ -76,6 +69,7 @@ app.include_router(forecasts.router, prefix="/api/v1")
 app.include_router(dispatch.router, prefix="/api/v1")
 app.include_router(mesh.router, prefix="/api/v1")
 app.include_router(dashboard.router, prefix="/api/v1")
+app.include_router(weather.router, prefix="/api/v1")
 
 @app.get("/", tags=["System"])
 def root() -> dict[str, str]:
