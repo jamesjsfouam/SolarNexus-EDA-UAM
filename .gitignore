@@ -14,3 +14,7 @@ datos/privados/
 .env
 *.db
 *.sqlite3
+
+# React/Vite frontend
+frontend/node_modules/
+frontend/dist/

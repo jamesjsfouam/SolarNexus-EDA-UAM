@@ -47,6 +47,7 @@ All business endpoints are prefixed with /api/v1.
 | POST | /dispatch/plan | Calculate and persist a dispatch plan |
 | GET | /dispatch/{id} | Retrieve a dispatch plan |
 | GET | /dispatch/latest | Retrieve the most recent dispatch plan |
+| POST | /mesh/solve | Solve the DC mesh optimization model |
 
 ## Contract for the statistics teammate
 
@@ -192,3 +193,18 @@ alembic upgrade head
 ## Dashboard summary
 
 GET /api/v1/dashboard/summary returns campus name/timezone, measurement count and latest measurement, totals for the latest forecast, and totals for the latest dispatch. Missing forecast/dispatch data is represented with null IDs and zero counts rather than fabricated values.
+
+
+## Frontend integration details
+
+The React dashboard lives in `frontend/` and consumes the same `/api/v1`
+routes listed above. Dispatch responses also include the saved battery peak
+window (`peak_start_hour`, `peak_end_hour`) and forecast-risk parameters
+(`alpha`, `delta`) so the dashboard can restore the settings used by the
+last saved dispatch.
+
+For local development, Vite proxies `/api` to the backend. An optional
+`SOLARNEXUS_API_KEY` can be supplied to the Vite development server; the proxy
+adds it server-side as `X-API-Key`. Do not use a `VITE_*` variable for this
+secret. Production deployments must use a trusted same-origin reverse proxy or
+gateway and must not expose a shared service key in browser JavaScript.

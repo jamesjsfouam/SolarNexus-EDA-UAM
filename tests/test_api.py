@@ -67,6 +67,10 @@ def test_statistics_forecast_then_dispatch(client):
     result = plan.json()
     assert len(result["points"]) == 4
     assert result["points"][2]["regime"] == "peak_shaving"
+    assert result["peak_start_hour"] == 14
+    assert result["peak_end_hour"] == 17
+    assert result["alpha"] == pytest.approx(0.05)
+    assert result["delta"] == pytest.approx(0.10)
     assert client.get(f"/api/v1/dispatch/{result['id']}").status_code == 200
     assert client.get("/api/v1/dispatch/latest").json()["id"] == result["id"]
 
@@ -168,4 +172,6 @@ def test_alembic_initial_migration_creates_database_schema(tmp_path):
     table_names = set(inspect(engine).get_table_names())
     assert {"alembic_version", "campus_config", "measurements", "forecast_runs",
         "forecast_points", "dispatch_runs", "dispatch_points"}.issubset(table_names)
+    dispatch_columns = {column["name"] for column in inspect(engine).get_columns("dispatch_runs")}
+    assert {"peak_start_hour", "peak_end_hour", "alpha", "delta"}.issubset(dispatch_columns)
     engine.dispose()

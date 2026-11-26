@@ -159,6 +159,10 @@ class DispatchRunRead(ORMModel):
     initial_soc_kwh: float
     min_soc_kwh: float
     charge_efficiency: float
+    peak_start_hour: int
+    peak_end_hour: int
+    alpha: float
+    delta: float
     final_soc_kwh: float
     created_at: datetime
     points: list[DispatchPointRead]

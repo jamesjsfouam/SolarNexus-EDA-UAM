@@ -58,6 +58,8 @@ def create_dispatch_plan(payload: DispatchPlanCreate, db: Session = Depends(get_
     run = DispatchRun(forecast_run_id=forecast.id, battery_capacity_kwh=cfg.capacity_kwh,
         battery_power_kw=cfg.power_kw, initial_soc_kwh=cfg.initial_soc_kwh,
         min_soc_kwh=cfg.min_soc_kwh, charge_efficiency=cfg.charge_efficiency,
+        peak_start_hour=cfg.peak_start_hour, peak_end_hour=cfg.peak_end_hour,
+        alpha=cfg.alpha, delta=cfg.delta,
         final_soc_kwh=battery.soc_kwh, points=[])
     for forecast_point, decision in zip(points, plan):
         flows = decision.flujos

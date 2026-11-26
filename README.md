@@ -318,3 +318,23 @@ La especificación de integración para frontend y estadística está en [docs/A
 - No incluyas la clave compartida dentro del bundle público del frontend. Para una SPA pública utiliza un proxy/backend del mismo origen o autenticación por usuario.
 - Copia `.env.example` a `.env` y reemplaza las claves de ejemplo antes de levantar Docker Compose.
 - `GET /api/v1/dashboard/summary` devuelve los indicadores agregados para el panel de control.
+
+
+## React dashboard
+
+The React + Vite dashboard is in `frontend/`. Start the API from the repository
+root and the frontend from a second terminal:
+
+```bash
+python -m pip install -e ".[dev]"
+uvicorn solarnexus.api.main:app --reload
+
+cd frontend
+cp .env.example .env
+npm install
+npm run dev
+```
+
+Vite proxies `/api/v1` to the backend during development. See
+[`frontend/README.md`](frontend/README.md) for proxy, API-key and production
+reverse-proxy configuration.
