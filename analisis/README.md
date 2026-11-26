@@ -29,6 +29,18 @@ python -m solarnexus.estadistica exportar --salida analisis/datos/solarnexus_dat
 
 Con datos reales, añade `--csv archivo.csv` o `--api http://localhost:8000`.
 
+### Clima sin la estación Copérnico
+
+Mientras no haya datos de Copérnico, el clima horario de Managua se puede descargar de Open-Meteo
+(reanálisis ERA5 o pronósticos pasados) o de NASA POWER, para usarlo en R o compararlo con la estación:
+
+```powershell
+python -m solarnexus.estadistica clima --fuente open-meteo-archivo --inicio 2025-01-01 --fin 2025-12-31 --salida analisis/datos/clima.csv
+```
+
+Columnas: `fecha` (hora de Managua), `temperatura` (°C), `humedad` (fracción), `radiacion` (W/m²).
+Si publicas resultados con datos de Open-Meteo, cita la fuente: *Weather data by Open-Meteo.com (CC BY 4.0)*.
+
 ### Informe completo
 
 Abre `informe.qmd` en RStudio y pulsa **Render**, o desde `analisis/`:

@@ -20,9 +20,10 @@ import numpy as np
 
 from .. import datos
 from ..oraculo import seleccionar_por_aic
+from . import fuentes
 from .cliente import ErrorAPI, enviar_pronostico, leer_mediciones
 from .metricas import CRITERIOS_ASHRAE
-from .pronostico import a_contrato, escenario_climatologico, pronosticar_dia
+from .pronostico import a_contrato, escenario_climatologico, escenario_con_clima, pronosticar_dia
 from .validacion import ReporteValidacion, validar
 
 DEMO_INICIO_PRUEBA = "2026-10-01"
@@ -54,6 +55,14 @@ def _sumar(fecha: np.datetime64 | str, dias: int) -> str:
     return str(np.datetime64(fecha, "D") + np.timedelta64(dias, "D"))
 
 
+def _clima(fuente: str, inicio: str, fin: str, args) -> fuentes.Clima | None:
+    if fuente == "climatologico":
+        return None
+    c = fuentes.obtener(fuente, inicio, fin, args.lat, args.lon)
+    print(f"Clima: {c.fuente}, {len(c)} horas ({inicio} → {fin}).")
+    return c
+
+
 def imprimir_reporte(r: ReporteValidacion) -> None:
     m, d = r.modelo, r.diagnosticos
     print("=== Modelo 3P (estimado antes de la prueba) ===")
@@ -73,6 +82,7 @@ def imprimir_reporte(r: ReporteValidacion) -> None:
         print(f"  ! {aviso}")
 
     print(f"\n=== Validación ASHRAE Guideline 14 (backtest de {r.dias_prueba} días desde {r.inicio_prueba}) ===")
+    print("Regresores de los días de prueba: " + ", ".join(f"{o} ({n} días)" for o, n in r.regresores.items()))
     print(f"{'muestra':<22}{'CV(RMSE)':>10}{'NMBE':>9}{'R²':>8}{'MAPE':>8}   criterio   ¿cumple?")
     for nombre, x in (("dentro (horario)", r.dentro_muestra), ("fuera (horario)", r.fuera_horario), ("fuera (diario)", r.fuera_diario)):
         c = CRITERIOS_ASHRAE[x.frecuencia]
@@ -91,8 +101,11 @@ def cmd_validar(args) -> int:
     serie, origen = _cargar(args)
     serie = _desde(serie, args.desde)
     inicio = args.inicio_prueba or (DEMO_INICIO_PRUEBA if origen == "demo" else _sumar(_ultimo_dia(serie), 1 - args.dias))
+    if args.clima == "open-meteo":
+        raise SystemExit("Para validar días pasados usa --clima open-meteo-pasados (pronósticos tal como se emitieron)")
+    clima = _clima(args.clima, inicio, _sumar(inicio, args.dias - 1), args)
     r = validar(serie, inicio, dias_prueba=args.dias, rejilla_tb=REJILLA_TB, delta=args.delta,
-                inicio_entrenamiento=args.desde)
+                inicio_entrenamiento=args.desde, clima=clima, kwp=args.kwp, rendimiento=args.rendimiento)
     if args.salida:
         Path(args.salida).write_text(json.dumps(r.a_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"Reporte JSON guardado en {args.salida}")
@@ -110,20 +123,44 @@ def cmd_pronosticar(args) -> int:
     if not 1 <= args.horizonte <= 7:
         raise SystemExit("--horizonte debe estar entre 1 y 7 días (el contrato admite hasta 168 horas)")
 
+    dias = [_sumar(fecha, i) for i in range(args.horizonte)]
+    # El backtest debe usar la misma clase de regresores que el pronóstico: con Open-Meteo,
+    # los pronósticos pasados tal como se emitieron.
+    fuente_backtest = "open-meteo-pasados" if args.clima == "open-meteo" else args.clima
+
     # 1) Calibración con un backtest de los días previos a la fecha.
     historico = serie.antes_de(fecha)
-    r = validar(historico, _sumar(fecha, -args.dias), dias_prueba=args.dias, rejilla_tb=REJILLA_TB, delta=args.delta)
+    inicio_bt = _sumar(fecha, -args.dias)
+    clima_bt = _clima(fuente_backtest, inicio_bt, _sumar(fecha, -1), args)
+    r = validar(historico, inicio_bt, dias_prueba=args.dias, rejilla_tb=REJILLA_TB, delta=args.delta,
+                clima=clima_bt, kwp=args.kwp, rendimiento=args.rendimiento)
     # 2) Modelo final con todo el historial disponible.
     modelo, _ = seleccionar_por_aic(historico.observaciones, REJILLA_TB)
-    dias = [_sumar(fecha, i) for i in range(args.horizonte)]
+    clima = _clima(args.clima, dias[0], dias[-1], args)
+
+    def escenario(d: str):
+        if clima is not None:
+            try:
+                e = escenario_con_clima(historico, d, clima, kwp=args.kwp, rendimiento=args.rendimiento)
+                if args.kwp and np.isnan(clima.perfil_24h(d)[2]).all():
+                    print(f"! {clima.fuente} aún no publica la radiación de {d}: la PV es el perfil histórico.")
+                return e
+            except ValueError:
+                print(f"! {clima.fuente} no tiene datos para {d}: se usa el escenario climatológico.")
+        return escenario_climatologico(historico, d)
+
+    escenarios = [escenario(d) for d in dias]
     pronosticos = [
-        pronosticar_dia(modelo, escenario_climatologico(historico, d), delta=args.delta,
+        pronosticar_dia(modelo, e, delta=args.delta,
                         factor_calibracion=r.factor_calibracion, factor_duan=r.diagnosticos.factor_duan)
-        for d in dias
+        for e in escenarios
     ]
-    notas = (f"Datos: {origen}. Tb={modelo.tb:.0f} °C, n={modelo.n}. Backtest {r.dias_prueba} días: "
-             f"CV(RMSE)={r.fuera_horario.cv_rmse_pct:.1f} %, NMBE={r.fuera_horario.nmbe_pct:.1f} %, "
-             f"k={r.factor_calibracion:.3f}, delta={args.delta}. Regresores: escenario climatológico de 28 días.")
+    origenes = sorted({e.origen for e in escenarios})
+    cita = " Datos meteorológicos: Open-Meteo.com (CC BY 4.0)." if any("open-meteo" in o for o in origenes) else ""
+    notas = (f"Datos: {origen}. Tb={modelo.tb:.0f} °C, n={modelo.n}. Backtest {r.dias_prueba} días "
+             f"({', '.join(r.regresores)}): CV(RMSE)={r.fuera_horario.cv_rmse_pct:.1f} %, "
+             f"NMBE={r.fuera_horario.nmbe_pct:.1f} %, k={r.factor_calibracion:.3f}, delta={args.delta}. "
+             f"Regresores del pronóstico: {', '.join(origenes)}.{cita}")
     cuerpo = a_contrato(pronosticos, model_version=args.version, notes=notas)
 
     print(f"Pronóstico {dias[0]} → {dias[-1]} ({len(cuerpo['points'])} horas). Tb = {modelo.tb:.0f} °C, k = {r.factor_calibracion:.3f}.")
@@ -158,9 +195,22 @@ def cmd_exportar(args) -> int:
     return 0
 
 
+def cmd_clima(args) -> int:
+    c = fuentes.obtener(args.fuente, args.inicio, args.fin, args.lat, args.lon)
+    salida = Path(args.salida)
+    salida.parent.mkdir(parents=True, exist_ok=True)
+    salida.write_text(c.a_csv(), encoding="utf-8")
+    faltan = int(np.isnan(c.temperatura).sum())
+    print(f"{len(c)} horas de {c.fuente} guardadas en {salida}" + (f" ({faltan} sin temperatura)" if faltan else ""))
+    if "open-meteo" in c.fuente:
+        print("Cita la fuente: Weather data by Open-Meteo.com (CC BY 4.0).")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")
+    for flujo in (sys.stdout, sys.stderr):
+        if hasattr(flujo, "reconfigure"):
+            flujo.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(prog="solarnexus.estadistica", description="Validación y pronóstico del modelo 3P")
     sub = ap.add_subparsers(dest="comando", required=True)
 
@@ -170,6 +220,12 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--desde", help="descartar datos anteriores a esta fecha (quiebre estructural)")
         p.add_argument("--dias", type=int, default=28, help="días del backtest (por defecto 28)")
         p.add_argument("--delta", type=float, default=0.10, help="margen admisible en ln C (0.10 ≈ ±10 %%)")
+        p.add_argument("--clima", default="climatologico", choices=("climatologico",) + fuentes.FUENTES,
+                       help="origen de temperatura y humedad (por defecto, promedio de los últimos 28 días)")
+        p.add_argument("--kwp", type=float, help="potencia solar instalada; estima la PV con la radiación de --clima")
+        p.add_argument("--rendimiento", type=float, default=0.80, help="factor de rendimiento de la planta (PR)")
+        p.add_argument("--lat", type=float, default=fuentes.LAT_UAM)
+        p.add_argument("--lon", type=float, default=fuentes.LON_UAM)
 
     v = sub.add_parser("validar", help="ASHRAE 14, diagnósticos y calibración")
     comunes(v)
@@ -184,6 +240,15 @@ def main(argv: list[str] | None = None) -> int:
     x.add_argument("--desde", help="descartar datos anteriores a esta fecha")
     x.add_argument("--salida", default="analisis/datos/solarnexus_datos.csv", help="archivo CSV de salida")
     x.set_defaults(func=cmd_exportar)
+
+    c = sub.add_parser("clima", help="descargar clima horario de Managua a CSV (también para R)")
+    c.add_argument("--fuente", required=True, choices=fuentes.FUENTES)
+    c.add_argument("--inicio", required=True, help="AAAA-MM-DD")
+    c.add_argument("--fin", required=True, help="AAAA-MM-DD (inclusive)")
+    c.add_argument("--lat", type=float, default=fuentes.LAT_UAM)
+    c.add_argument("--lon", type=float, default=fuentes.LON_UAM)
+    c.add_argument("--salida", default="analisis/datos/clima.csv")
+    c.set_defaults(func=cmd_clima)
 
     p = sub.add_parser("pronosticar", help="pronóstico en el formato de POST /api/v1/forecasts")
     comunes(p)

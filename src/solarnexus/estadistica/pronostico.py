@@ -36,6 +36,7 @@ class Escenario:
     observaciones: Observaciones  # sin consumo
     pv: np.ndarray
     dias_usados: int
+    origen: str = "climatológico"
 
 
 @dataclass(frozen=True)
@@ -63,8 +64,14 @@ def escenario_climatologico(
     actividad: np.ndarray | None = None,
     temperatura: np.ndarray | None = None,
     humedad: np.ndarray | None = None,
+    pv: np.ndarray | None = None,
+    origen: str = "climatológico",
 ) -> Escenario:
-    """Regresores esperados del día `fecha` a partir de los `dias` días previos del mismo tipo."""
+    """Regresores esperados del día `fecha` a partir de los `dias` días previos del mismo tipo.
+
+    `actividad`, `temperatura`, `humedad` y `pv` (24 valores) sustituyen al perfil promedio;
+    las horas con NaN conservan el valor climatológico.
+    """
     objetivo = np.datetime64(fecha, "D")
     previo = historico.antes_de(fecha)
     dias_serie = previo.fechas.astype("datetime64[D]")
@@ -90,7 +97,7 @@ def escenario_climatologico(
         propio = np.asarray(propio, dtype=float)
         if propio.shape != (24,):
             raise ValueError(f"{nombre} debe tener 24 valores horarios")
-        return propio
+        return np.where(np.isnan(propio), defecto, propio)
 
     obs = Observaciones(
         temperatura=sustituir("temperatura", temperatura, perfil(o.temperatura)),
@@ -99,7 +106,33 @@ def escenario_climatologico(
         actividad=sustituir("actividad", actividad, np.exp(perfil(np.log(o.actividad)))),
         area=np.exp(perfil(np.log(o.area))),
     )
-    return Escenario(fecha=fecha, horas=np.arange(24), observaciones=obs, pv=perfil(sel.pv), dias_usados=len(candidatos))
+    return Escenario(fecha=fecha, horas=np.arange(24), observaciones=obs, pv=sustituir("pv", pv, perfil(sel.pv)),
+                     dias_usados=len(candidatos), origen=origen)
+
+
+def escenario_con_clima(
+    historico: SerieCampus,
+    fecha: str,
+    clima,
+    kwp: float | None = None,
+    rendimiento: float = 0.80,
+    dias: int = 28,
+) -> Escenario:
+    """Escenario con temperatura y humedad de una fuente externa (Open-Meteo, NASA POWER).
+
+    Actividad y área siguen siendo el perfil de los días del mismo tipo (no hay API del
+    calendario académico). Si se da `kwp`, la PV se estima con la radiación de la fuente;
+    si no, se usa el perfil histórico de PV del campus.
+    """
+    from .fuentes import pv_desde_radiacion
+
+    t, h, r = clima.perfil_24h(fecha)
+    if np.isnan(t).all():
+        raise ValueError(f"La fuente {clima.fuente} no tiene datos para {fecha}")
+    pv = pv_desde_radiacion(np.nan_to_num(r, nan=0.0), kwp, rendimiento) if kwp else None
+    if pv is not None:
+        pv[np.isnan(r)] = np.nan
+    return escenario_climatologico(historico, fecha, dias=dias, temperatura=t, humedad=h, pv=pv, origen=clima.fuente)
 
 
 def prob_en_margen(sigma_f: np.ndarray, delta: float, factor_calibracion: float = 1.0) -> np.ndarray:

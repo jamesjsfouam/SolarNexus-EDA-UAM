@@ -25,7 +25,7 @@ from ..datos import SerieCampus
 from ..oraculo import ModeloAjustado, seleccionar_por_aic
 from .diagnosticos import Diagnosticos, diagnosticar, residuos
 from .metricas import Metricas, calcular_metricas
-from .pronostico import escenario_climatologico, prob_en_margen, pronosticar_dia
+from .pronostico import escenario_climatologico, escenario_con_clima, prob_en_margen, pronosticar_dia
 
 LIMITES_FIABILIDAD = (0.0, 0.5, 0.7, 0.8, 0.9, 0.95, 1.0)
 
@@ -56,6 +56,7 @@ class ReporteValidacion:
     cobertura_95: float
     fiabilidad: list[FilaFiabilidad] = field(default_factory=list)
     inicio_entrenamiento: str | None = None
+    regresores: dict[str, int] = field(default_factory=dict)  # días de prueba por origen del clima
 
     @property
     def apto_para_despacho(self) -> bool:
@@ -78,7 +79,7 @@ class ReporteValidacion:
                 "rezagos_hac": d.rezagos_hac, "factor_duan": d.factor_duan, "avisos": d.avisos(),
             },
             "backtest": {"inicio": self.inicio_prueba, "dias": self.dias_prueba, "delta": self.delta,
-                         "inicio_entrenamiento": self.inicio_entrenamiento},
+                         "inicio_entrenamiento": self.inicio_entrenamiento, "regresores": self.regresores},
             "dentro_muestra": met(self.dentro_muestra),
             "fuera_muestra_horario": met(self.fuera_horario),
             "fuera_muestra_diario": met(self.fuera_diario),
@@ -121,9 +122,16 @@ def validar(
     delta: float = 0.10,
     dias_escenario: int = 28,
     inicio_entrenamiento: str | None = None,
+    clima=None,
+    kwp: float | None = None,
+    rendimiento: float = 0.80,
 ) -> ReporteValidacion:
     """`inicio_entrenamiento` permite descartar datos anteriores a un quiebre estructural
-    (p. ej. la entrada de Copérnico) para que la línea base represente el régimen actual."""
+    (p. ej. la entrada de Copérnico) para que la línea base represente el régimen actual.
+
+    `clima` (fuentes.Clima) da la temperatura y la humedad de cada día de prueba. Con
+    `open-meteo-pasados` son los pronósticos tal como se emitieron: la validación es ex ante.
+    Los días sin datos de la fuente usan el escenario climatológico."""
     entrenamiento = serie.antes_de(inicio_prueba)
     if inicio_entrenamiento is not None:
         d = entrenamiento.fechas.astype("datetime64[D]")
@@ -139,12 +147,21 @@ def validar(
 
     inicio = np.datetime64(inicio_prueba, "D")
     reales, estimados, e_ln, sigmas, reales_dia, estimados_dia = [], [], [], [], [], []
+    origenes: list[str] = []
     for i in range(dias_prueba):
         fecha = str(inicio + np.timedelta64(i, "D"))
         dia = serie.entre(fecha, fecha)
         if len(dia) != 24:
             continue
-        esc = escenario_climatologico(serie, fecha, dias=dias_escenario)
+        esc = None
+        if clima is not None:
+            try:
+                esc = escenario_con_clima(serie, fecha, clima, kwp=kwp, rendimiento=rendimiento, dias=dias_escenario)
+            except ValueError:
+                esc = None  # la fuente no cubre ese día
+        if esc is None:
+            esc = escenario_climatologico(serie, fecha, dias=dias_escenario)
+        origenes.append(esc.origen)
         pron = pronosticar_dia(modelo, esc, delta=delta, factor_duan=diag.factor_duan)
         c = np.asarray(dia.observaciones.consumo, dtype=float)
         reales.append(c)
@@ -180,4 +197,5 @@ def validar(
         cobertura_95=cobertura_95,
         fiabilidad=tabla_fiabilidad(p_cal, aciertos),
         inicio_entrenamiento=inicio_entrenamiento,
+        regresores={o: origenes.count(o) for o in sorted(set(origenes))},
     )
